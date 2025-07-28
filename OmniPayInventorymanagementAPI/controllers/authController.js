@@ -1,12 +1,19 @@
 // controllers/authController.js
-const User = require('../models/userModel');
+const { poolPromise, sql } = require('../config/db');
 
+// login
 const login = async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    const user = await User.getUserByUsernameAndPassword(username, password);
-   
+    const pool = await poolPromise;
+    const result = await pool.request()
+      .input('username', sql.VarChar, username)
+      .input('password', sql.VarChar, password)
+      .query(`SELECT * FROM Users WHERE Username = @username AND Password = @password AND UserRole not in ('Customer')`);
+
+    const user = result.recordset[0];
+
     if (!user) {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
@@ -20,8 +27,9 @@ const login = async (req, res) => {
         IsAdmin: user.IsAdmin
       }
     });
+
   } catch (err) {
-    console.error(err);
+    console.error('❌ Login error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 };
