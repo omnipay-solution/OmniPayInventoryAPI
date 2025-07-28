@@ -270,18 +270,18 @@ const getCategoryById = async (req, res) => {
     const result = await pool
       .request()
       .input("CategoryID", sql.Int, categoryId)
-      .query("SELECT * FROM CategoryMaster WHERE CategoryID = @CategoryId");
+      .query("SELECT * FROM Items WHERE CategoryID = @CategoryId");
 
     if (result.recordset.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Category not found",
+        message: "Items not found",
       });
     }
 
     res.status(200).json({
       success: true,
-      data: result.recordset[0],
+      data: result.recordset,
     });
   } catch (err) {
     console.error("Error fetching category:", err);
