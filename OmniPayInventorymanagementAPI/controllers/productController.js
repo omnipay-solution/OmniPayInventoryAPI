@@ -1,6 +1,5 @@
 const { sql, poolPromise } = require("../config/db");
-
-// Get All products
+ 
 const getAllProducts = async (req, res) => {
   const upcc = req.params.upcc;
   try {
@@ -12,11 +11,10 @@ const getAllProducts = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
-
-// Get All products by UPC code
+ 
 const getProductByUPC = async (req, res) => {
   const { upc_code } = req.params;
-
+ 
   try {
     const pool = await poolPromise;
     const result = await pool.request().input("UPC", sql.VarChar, upc_code)
@@ -24,35 +22,33 @@ const getProductByUPC = async (req, res) => {
         SELECT * FROM Items
         WHERE UPC = @UPC OR AltUPC = @UPC
       `);
-
+ 
     if (result.recordset.length === 0) {
       return res
         .status(404)
         .json({ success: false, message: "Product not found" });
     }
-
+ 
     res.status(200).json({ success: true, data: result.recordset });
   } catch (err) {
     console.error("Error fetching product by UPC:", err);
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
-
-//Get All Categories
+ 
 const getAllCategories = async (req, res) => {
   try {
     const pool = await poolPromise;
-
+ 
     const result = await pool.request().query("SELECT * FROM CategoryMaster");
-
+ 
     res.status(200).json({ success: true, data: result.recordset });
   } catch (err) {
     console.error("Error fetching categories:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
-
-// Get Active Sales Tax
+ 
 const getActiveSalesTax = async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -65,18 +61,17 @@ const getActiveSalesTax = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
-
-// Get Credit Card Charge
+ 
 const getCreditCardChargeConfig = async (req, res) => {
   try {
     const pool = await poolPromise;
-
+ 
     const result = await pool.request().query(`
-      SELECT CreditCardCharge 
-      FROM Company 
+      SELECT CreditCardCharge
+      FROM Company
       WHERE IsActive = 1
     `);
-
+ 
     if (result.recordset.length === 0) {
       return res
         .status(404)
@@ -91,8 +86,7 @@ const getCreditCardChargeConfig = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
-
-// Add New product 
+ 
 const createProduct = async (req, res) => {
   try {
     const {
@@ -117,10 +111,10 @@ const createProduct = async (req, res) => {
       IsActive,
       CostPerItem,
     } = req.body;
-
+ 
     const pool = await poolPromise;
     const request = pool.request();
-
+ 
     // Bind inputs
     request.input("Name", sql.VarChar, Name);
     request.input("UPC", sql.VarChar, UPC);
@@ -147,7 +141,7 @@ const createProduct = async (req, res) => {
     request.input("IsActive", sql.Bit, IsActive);
     request.input("CreatedDate", sql.DateTime, new Date());
     request.input("CostPerItem", sql.Decimal(18, 2), CostPerItem);
-
+ 
     // SQL query to insert and return the inserted ItemID
     const result = await request.query(`
       INSERT INTO Items (
@@ -164,9 +158,9 @@ const createProduct = async (req, res) => {
         @AltUPC, @ImageUrl, @CategoryId, @IsActive, @CreatedDate, @CostPerItem
       )
     `);
-
+ 
     const insertedItemID = result.recordset[0].ItemID;
-
+ 
     res.status(201).json({
       success: true,
       message: "Product added successfully",
@@ -177,14 +171,14 @@ const createProduct = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
-
+ 
 // Inventory tracking data
 const getInventoryTrackingData = async (req, res) => {
   const { trackingType, productName, fromDate, toDate } = req.body;
-
+ 
   try {
     const pool = await poolPromise;
-
+ 
     const result = await pool
       .request()
       .input("p_TrackingType", sql.VarChar, trackingType)
@@ -192,14 +186,14 @@ const getInventoryTrackingData = async (req, res) => {
       .input("p_FromDate", sql.DateTime, fromDate ? new Date(fromDate) : null)
       .input("p_ToDate", sql.DateTime, toDate ? new Date(toDate) : null)
       .execute("InventoryTrackingData");
-
+ 
     if (!result.recordset || result.recordset.length === 0) {
       return res.status(404).json({
         success: false,
         message: "No tracking data found",
       });
     }
-
+ 
     res.status(200).json({
       success: true,
       data: result.recordset,
@@ -212,41 +206,41 @@ const getInventoryTrackingData = async (req, res) => {
     });
   }
 };
-
+ 
 // Flash report
 const getFlashReport = async (req, res) => {
   try {
     const { fromDate, toDate, invoiceNo } = req.body;
-
+ 
     let whereClause = "";
-
+ 
     //  Build dynamic WHERE clause
     if (fromDate) {
       const formattedFromDate = new Date(fromDate).toISOString().slice(0, 10); // yyyy-MM-dd
       whereClause += ` AND I.CreatedDateTime >= '${formattedFromDate}' `;
     }
-
+ 
     if (toDate) {
       const formattedToDate = new Date(toDate).toISOString().slice(0, 10);
       // Adding interval logic like DATE_ADD in MySQL, assuming SQL Server supports date + 1
       whereClause += ` AND I.CreatedDateTime < DATEADD(DAY, 1, '${formattedToDate}') `;
     }
-
+ 
     if (invoiceNo && invoiceNo.trim() !== "") {
       whereClause += ` AND I.InvoiceCode LIKE '%${invoiceNo.trim()}%' `;
     }
-
+ 
     if (whereClause.trim() === "") {
       whereClause = " AND 1=1 ";
     }
-
+ 
     const pool = await poolPromise;
     const result = await pool
       .request()
       .input("p_Where", sql.NVarChar, whereClause)
       .input("p_ItemID", sql.Int, 0)
       .execute("usp_GetSalesHistoryData_2");
-
+ 
     res.status(200).json({
       success: true,
       data: result.recordset,
@@ -260,28 +254,28 @@ const getFlashReport = async (req, res) => {
     });
   }
 };
-
+ 
 // Get category by id
 const getCategoryById = async (req, res) => {
   const { categoryId } = req.body;
-
+ 
   try {
     const pool = await poolPromise;
     const result = await pool
       .request()
       .input("CategoryID", sql.Int, categoryId)
-      .query("SELECT * FROM Items WHERE CategoryID = @CategoryId");
-
+      .query("SELECT * FROM CategoryMaster WHERE CategoryID = @CategoryId");
+ 
     if (result.recordset.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Items not found",
+        message: "Category not found",
       });
     }
-
+ 
     res.status(200).json({
       success: true,
-      data: result.recordset,
+      data: result.recordset[0],
     });
   } catch (err) {
     console.error("Error fetching category:", err);
@@ -292,14 +286,14 @@ const getCategoryById = async (req, res) => {
     });
   }
 };
-
+ 
 // Sales report(history)
 const getSalesHistory = async (req, res) => {
   const { fromDate, toDate, paymentType, invoiceBy, invoiceCode } = req.body;
-
+ 
   try {
     const pool = await poolPromise;
-
+ 
     const result = await pool
       .request()
       .input("p_FromDate", sql.DateTime, fromDate ? new Date(fromDate) : null)
@@ -308,7 +302,7 @@ const getSalesHistory = async (req, res) => {
       .input("p_InvoiceBy", sql.VarChar(100), invoiceBy || null)
       .input("p_InvoiceCode", sql.VarChar(100), invoiceCode || null)
       .execute("sp_GetSalesReport");
-
+ 
     res.status(200).json({
       success: true,
       data: result.recordset,
@@ -322,124 +316,107 @@ const getSalesHistory = async (req, res) => {
     });
   }
 };
-
-// Hourly report
-const getHourlyReport = async (req, res) => {
+ 
+// Hourly item report
+const getHourlyItemReport = async (req, res) => {
   try {
     const { fromDate, toDate } = req.body;
-
+ 
     if (!fromDate || !toDate) {
-      return res.status(400).json({ success: false, message: "fromDate and toDate are required." });
+      return res
+        .status(400)
+        .json({ success: false, message: "fromDate and toDate are required." });
     }
-
-    const formattedFromDate = new Date(fromDate).toISOString().slice(0, 10);
-    const formattedToDate = new Date(toDate).toISOString().slice(0, 10);
-
-    let whereClause = `AND I.CreatedDateTime >= '${formattedFromDate}' AND I.CreatedDateTime < DATEADD(DAY, 1, '${formattedToDate}')`;
-
+ 
+    // Build dynamic WHERE clause
+    let whereClause = "";
+    if (fromDate) {
+      const formattedFromDate = new Date(fromDate).toISOString().slice(0, 10); // yyyy-MM-dd
+      whereClause += ` AND I.CreatedDateTime >= '${formattedFromDate}' `;
+    }
+    if (toDate) {
+      const formattedToDate = new Date(toDate).toISOString().slice(0, 10);
+      whereClause += ` AND I.CreatedDateTime < DATEADD(DAY, 1, '${formattedToDate}') `;
+    }
+    if (whereClause.trim() === "") {
+      whereClause = " AND 1=1 ";
+    }
+ 
     const pool = await poolPromise;
-    const result = await pool.request()
+    const result = await pool
+      .request()
       .input("p_Where", sql.NVarChar, whereClause)
       .input("p_ItemID", sql.Int, 0)
       .execute("usp_GetSalesHistoryData_2");
-
+ 
     const data = result.recordsets[0] || [];
-
-    const hourlySummaryMap = {};
-    const itemSummaryMap = {};
-
+ 
+    // Group by Product Name (Flash Report)
+    const productMap = {};
     for (const row of data) {
-      const createdDate = row.CreatedDateTime ? new Date(row.CreatedDateTime) : null;
-      const quantity = Number(row.Quantity || 0);
-      const totalPrice = Number(row.TotalPrice || 0);
-      const invoiceCode = row.InvoiceCode?.toString();
-      const name = row.Name?.trim() || "Unknown";
-
-      // ========== Group by Hour ==========
-      if (createdDate) {
-        const datePart = createdDate.toLocaleDateString('en-US');
-        const hour = createdDate.getHours();
-
-        const fromHour = hour % 12 === 0 ? 12 : hour % 12;
-        const toHour = (hour + 1) % 12 === 0 ? 12 : (hour + 1) % 12;
-        const fromPeriod = hour < 12 ? "AM" : "PM";
-        const toPeriod = (hour + 1) < 12 ? "AM" : "PM";
-
-        const fromTime = `${fromHour}${fromPeriod}`;
-        const toTime = `${toHour}${toPeriod}`;
-        const timeSlot = `${datePart} ${fromTime} - ${toTime}`;
-
-        if (!hourlySummaryMap[timeSlot]) {
-          hourlySummaryMap[timeSlot] = {
-            TimeSlot: timeSlot,
-            TotalAmount: 0,
-            TotalItems: 0,
-            Transactions: new Set(),
-          };
-        }
-
-        hourlySummaryMap[timeSlot].TotalAmount += totalPrice;
-        hourlySummaryMap[timeSlot].TotalItems += quantity;
-        if (invoiceCode) hourlySummaryMap[timeSlot].Transactions.add(invoiceCode);
-      }
-
-      // ========== Group by Item ==========
-      if (!itemSummaryMap[name]) {
-        itemSummaryMap[name] = {
-          ItemName: name,
-          TotalPrice: 0,
-          TotalQuantity: 0,
+      const productName = row.Name?.trim() || "Unknown";
+      if (!productMap[productName]) {
+        productMap[productName] = {
+          itemName: productName,
+          totalQuantity: 0,
+          totalSales: 0,
         };
       }
-
-      itemSummaryMap[name].TotalPrice += totalPrice;
-      itemSummaryMap[name].TotalQuantity += quantity;
+      productMap[productName].totalQuantity += Number(row.Quantity || 0);
+      productMap[productName].totalSales += Number(row.TotalPrice || 0);
     }
-
-    // Format hourly summary
-    const hourlySummary = Object.values(hourlySummaryMap)
-      .map(entry => ({
-        TimeSlot: entry.TimeSlot,
-        TotalAmount: parseFloat(entry.TotalAmount.toFixed(2)),
-        TotalItems: entry.TotalItems,
-        TotalTransactions: entry.Transactions.size,
-      }))
-      .sort((a, b) => {
-        const parseTime = timeStr => {
-          try {
-            const [datePart, range] = timeStr.split(' ');
-            const baseDate = new Date(datePart);
-            const fromTime = range.split('-')[0].trim();
-            const hour = new Date(`01/01/2000 ${fromTime}`).getHours();
-            return new Date(baseDate.setHours(hour));
-          } catch {
-            return new Date(0);
-          }
-        };
-        return parseTime(a.TimeSlot) - parseTime(b.TimeSlot);
-      });
-
-    // Format item summary
-    const itemSummary = Object.values(itemSummaryMap)
-      .map(entry => ({
-        ItemName: entry.ItemName,
-        TotalPrice: parseFloat(entry.TotalPrice.toFixed(2)),
-        TotalQuantity: entry.TotalQuantity
-      }))
-      .sort((a, b) => b.TotalPrice - a.TotalPrice); // optional: sort by price
-
-    res.json({
-      success: true,
-      hourlySummary,
-      itemSummary
-    });
+    const flashReport = Object.values(productMap).sort(
+      (a, b) => b.totalSales - a.totalSales
+    ); // sorted by sales descending
+    res.json({ success: true, data: flashReport });
   } catch (err) {
-    console.error("Error in combined hourly report:", err);
-    res.status(500).json({ success: false, message: "Server error", error: err.message });
+    console.error("Error generating flash report:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
   }
 };
-
-
+ 
+// Get user coins
+const getUserCoins = async (req, res) => {
+  const { userCode } = req.body;
+ 
+  if (!userCode) {
+    return res.status(400).json({ error: "UserCode required" });
+  }
+ 
+  try {
+    const pool = await poolPromise;
+    const result = await pool.request().input("UserCode", sql.Int, userCode)
+      .query(`SELECT
+    u.UserCode,
+    u.UserName,
+    u.Name,
+    u.EmailID,
+    u.MobileNo,
+    u.UserRole,
+          CASE
+        WHEN u.AvailableCoins >= 10000 THEN (u.AvailableCoins / 10000) * 5
+        ELSE 0
+    END AS CoinsDiscount
+FROM
+    Users u
+WHERE
+u.UserCode = @UserCode  AND  u.UserRole = 'Customer';`);
+    if (result.recordset.length === 0) {
+      return res.status(401).json({ error: "Invalid userCode" });
+    }
+    res.status(200).json({
+      message: "Coins successful",
+      user: result.recordset[0],
+    });
+  } catch (err) {
+    console.error("server Error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+ 
+ 
 module.exports = {
   getAllProducts,
   getProductByUPC,
@@ -451,5 +428,8 @@ module.exports = {
   getFlashReport,
   getCategoryById,
   getSalesHistory,
-  getHourlyReport
+  getHourlyItemReport,
+  getUserCoins,
 };
+ 
+ 
