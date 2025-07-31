@@ -11,7 +11,7 @@ const {
   getFlashReport,
   getCategoryById,
   getSalesHistory,
-  getHourlyItemReport,
+  getHourlyReport,
   getUserCoins,
 } = require("../controllers/productController");
  
@@ -24,7 +24,7 @@ router.post("/inventory-tracking", getInventoryTrackingData);
 router.post("/flash-report", getFlashReport);
 router.post("/category", getCategoryById);
 router.post("/sales-history", getSalesHistory);
-router.post("/hourly-report", getHourlyItemReport);
+router.post("/hourly-report", getHourlyReport);
 router.post("/userCoins", getUserCoins);
  
 // dynamic routes
