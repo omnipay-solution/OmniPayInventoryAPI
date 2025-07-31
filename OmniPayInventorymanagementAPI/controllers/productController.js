@@ -318,62 +318,118 @@ const getSalesHistory = async (req, res) => {
 };
  
 // Hourly item report
-const getHourlyItemReport = async (req, res) => {
+const getHourlyReport = async (req, res) => {
   try {
     const { fromDate, toDate } = req.body;
- 
+
     if (!fromDate || !toDate) {
-      return res
-        .status(400)
-        .json({ success: false, message: "fromDate and toDate are required." });
+      return res.status(400).json({ success: false, message: "fromDate and toDate are required." });
     }
- 
-    // Build dynamic WHERE clause
-    let whereClause = "";
-    if (fromDate) {
-      const formattedFromDate = new Date(fromDate).toISOString().slice(0, 10); // yyyy-MM-dd
-      whereClause += ` AND I.CreatedDateTime >= '${formattedFromDate}' `;
-    }
-    if (toDate) {
-      const formattedToDate = new Date(toDate).toISOString().slice(0, 10);
-      whereClause += ` AND I.CreatedDateTime < DATEADD(DAY, 1, '${formattedToDate}') `;
-    }
-    if (whereClause.trim() === "") {
-      whereClause = " AND 1=1 ";
-    }
- 
+
+    const formattedFromDate = new Date(fromDate).toISOString().slice(0, 10);
+    const formattedToDate = new Date(toDate).toISOString().slice(0, 10);
+
+    let whereClause = `AND I.CreatedDateTime >= '${formattedFromDate}' AND I.CreatedDateTime < DATEADD(DAY, 1, '${formattedToDate}')`;
+
     const pool = await poolPromise;
-    const result = await pool
-      .request()
+    const result = await pool.request()
       .input("p_Where", sql.NVarChar, whereClause)
       .input("p_ItemID", sql.Int, 0)
       .execute("usp_GetSalesHistoryData_2");
- 
+
     const data = result.recordsets[0] || [];
- 
-    // Group by Product Name (Flash Report)
-    const productMap = {};
+
+    const hourlySummaryMap = {};
+    const itemSummaryMap = {};
+
     for (const row of data) {
-      const productName = row.Name?.trim() || "Unknown";
-      if (!productMap[productName]) {
-        productMap[productName] = {
-          itemName: productName,
-          totalQuantity: 0,
-          totalSales: 0,
+      const createdDate = row.CreatedDateTime ? new Date(row.CreatedDateTime) : null;
+      const quantity = Number(row.Quantity || 0);
+      const totalPrice = Number(row.TotalPrice || 0);
+      const invoiceCode = row.InvoiceCode?.toString();
+      const name = row.Name?.trim() || "Unknown";
+
+      // ========== Group by Hour ==========
+      if (createdDate) {
+        const datePart = createdDate.toLocaleDateString('en-US');
+        const hour = createdDate.getHours();
+
+        const fromHour = hour % 12 === 0 ? 12 : hour % 12;
+        const toHour = (hour + 1) % 12 === 0 ? 12 : (hour + 1) % 12;
+        const fromPeriod = hour < 12 ? "AM" : "PM";
+        const toPeriod = (hour + 1) < 12 ? "AM" : "PM";
+
+        const fromTime = `${fromHour}${fromPeriod}`;
+        const toTime = `${toHour}${toPeriod}`;
+        const timeSlot = `${datePart} ${fromTime} - ${toTime}`;
+
+        if (!hourlySummaryMap[timeSlot]) {
+          hourlySummaryMap[timeSlot] = {
+            TimeSlot: timeSlot,
+            TotalAmount: 0,
+            TotalItems: 0,
+            Transactions: new Set(),
+          };
+        }
+
+        hourlySummaryMap[timeSlot].TotalAmount += totalPrice;
+        hourlySummaryMap[timeSlot].TotalItems += quantity;
+        if (invoiceCode) hourlySummaryMap[timeSlot].Transactions.add(invoiceCode);
+      }
+
+      // ========== Group by Item ==========
+      if (!itemSummaryMap[name]) {
+        itemSummaryMap[name] = {
+          ItemName: name,
+          TotalPrice: 0,
+          TotalQuantity: 0,
         };
       }
-      productMap[productName].totalQuantity += Number(row.Quantity || 0);
-      productMap[productName].totalSales += Number(row.TotalPrice || 0);
+
+      itemSummaryMap[name].TotalPrice += totalPrice;
+      itemSummaryMap[name].TotalQuantity += quantity;
     }
-    const flashReport = Object.values(productMap).sort(
-      (a, b) => b.totalSales - a.totalSales
-    ); // sorted by sales descending
-    res.json({ success: true, data: flashReport });
+
+    // Format hourly summary
+    const hourlySummary = Object.values(hourlySummaryMap)
+      .map(entry => ({
+        TimeSlot: entry.TimeSlot,
+        TotalAmount: parseFloat(entry.TotalAmount.toFixed(2)),
+        TotalItems: entry.TotalItems,
+        TotalTransactions: entry.Transactions.size,
+      }))
+      .sort((a, b) => {
+        const parseTime = timeStr => {
+          try {
+            const [datePart, range] = timeStr.split(' ');
+            const baseDate = new Date(datePart);
+            const fromTime = range.split('-')[0].trim();
+            const hour = new Date(`01/01/2000 ${fromTime}`).getHours();
+            return new Date(baseDate.setHours(hour));
+          } catch {
+            return new Date(0);
+          }
+        };
+        return parseTime(a.TimeSlot) - parseTime(b.TimeSlot);
+      });
+
+    // Format item summary
+    const itemSummary = Object.values(itemSummaryMap)
+      .map(entry => ({
+        ItemName: entry.ItemName,
+        TotalPrice: parseFloat(entry.TotalPrice.toFixed(2)),
+        TotalQuantity: entry.TotalQuantity
+      }))
+      .sort((a, b) => b.TotalPrice - a.TotalPrice); // optional: sort by price
+
+    res.json({
+      success: true,
+      hourlySummary,
+      itemSummary
+    });
   } catch (err) {
-    console.error("Error generating flash report:", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error", error: err.message });
+    console.error("Error in combined hourly report:", err);
+    res.status(500).json({ success: false, message: "Server error", error: err.message });
   }
 };
  
@@ -428,7 +484,7 @@ module.exports = {
   getFlashReport,
   getCategoryById,
   getSalesHistory,
-  getHourlyItemReport,
+ getHourlyReport,
   getUserCoins,
 };
  
