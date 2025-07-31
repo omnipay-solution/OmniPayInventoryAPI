@@ -264,7 +264,7 @@ const getCategoryById = async (req, res) => {
     const result = await pool
       .request()
       .input("CategoryID", sql.Int, categoryId)
-      .query("SELECT * FROM CategoryMaster WHERE CategoryID = @CategoryId");
+      .query("SELECT * FROM Items WHERE CategoryID = @CategoryId");
  
     if (result.recordset.length === 0) {
       return res.status(404).json({
