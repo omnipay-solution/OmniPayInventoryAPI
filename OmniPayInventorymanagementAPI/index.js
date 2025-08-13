@@ -17,6 +17,10 @@ app.get('/', (req, res) => {
   res.send('Welcome to OmniPayInventorymanagementAPI!');
 });
 
+app.get("/error", (req, res) => {
+  res.status(500).send("Internal Server Error for testing.");
+});
+
 // ✅ Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
