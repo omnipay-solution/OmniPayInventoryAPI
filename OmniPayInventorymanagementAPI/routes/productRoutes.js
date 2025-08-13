@@ -13,6 +13,10 @@ const {
   getSalesHistory,
   getHourlyReport,
   getUserCoins,
+  sendDocumentEmail,
+  upload, // Import multer upload middleware
+  createInvoiceAndSession,
+  updateCheckoutSessionStatus
 } = require("../controllers/productController");
  
 // GET /products
@@ -26,6 +30,9 @@ router.post("/category", getCategoryById);
 router.post("/sales-history", getSalesHistory);
 router.post("/hourly-report", getHourlyReport);
 router.post("/userCoins", getUserCoins);
+router.post("/sendMail", upload.single('document'), sendDocumentEmail);
+router.post("/create-invoiceAndSession", createInvoiceAndSession);
+router.put("/update-session" , updateCheckoutSessionStatus);
  
 // dynamic routes
 router.get("/", getAllProducts);

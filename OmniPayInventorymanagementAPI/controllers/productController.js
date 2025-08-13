@@ -1,5 +1,9 @@
 const { sql, poolPromise } = require("../config/db");
- 
+const multer = require("multer");
+const path = require("path");
+const nodemailer = require("nodemailer");
+
+// Get all products--------------------------------------------------------------------------
 const getAllProducts = async (req, res) => {
   const upcc = req.params.upcc;
   try {
@@ -11,10 +15,11 @@ const getAllProducts = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
- 
+
+// Get product by UPC------------------------------------------------------------------------
 const getProductByUPC = async (req, res) => {
   const { upc_code } = req.params;
- 
+
   try {
     const pool = await poolPromise;
     const result = await pool.request().input("UPC", sql.VarChar, upc_code)
@@ -22,33 +27,35 @@ const getProductByUPC = async (req, res) => {
         SELECT * FROM Items
         WHERE UPC = @UPC OR AltUPC = @UPC
       `);
- 
+
     if (result.recordset.length === 0) {
       return res
         .status(404)
         .json({ success: false, message: "Product not found" });
     }
- 
+
     res.status(200).json({ success: true, data: result.recordset });
   } catch (err) {
     console.error("Error fetching product by UPC:", err);
     res.status(500).json({ success: false, message: "Server Error" });
   }
 };
- 
+
+// Get all categories------------------------------------------------------------------------
 const getAllCategories = async (req, res) => {
   try {
     const pool = await poolPromise;
- 
+
     const result = await pool.request().query("SELECT * FROM CategoryMaster");
- 
+
     res.status(200).json({ success: true, data: result.recordset });
   } catch (err) {
     console.error("Error fetching categories:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
- 
+
+// Get active sales tax----------------------------------------------------------------------
 const getActiveSalesTax = async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -61,17 +68,18 @@ const getActiveSalesTax = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
- 
+
+// Get credit card charge configuration------------------------------------------------------
 const getCreditCardChargeConfig = async (req, res) => {
   try {
     const pool = await poolPromise;
- 
+
     const result = await pool.request().query(`
       SELECT CreditCardCharge
       FROM Company
       WHERE IsActive = 1
     `);
- 
+
     if (result.recordset.length === 0) {
       return res
         .status(404)
@@ -86,7 +94,8 @@ const getCreditCardChargeConfig = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
- 
+
+// Create a new product----------------------------------------------------------------------
 const createProduct = async (req, res) => {
   try {
     const {
@@ -111,10 +120,10 @@ const createProduct = async (req, res) => {
       IsActive,
       CostPerItem,
     } = req.body;
- 
+
     const pool = await poolPromise;
     const request = pool.request();
- 
+
     // Bind inputs
     request.input("Name", sql.VarChar, Name);
     request.input("UPC", sql.VarChar, UPC);
@@ -141,7 +150,7 @@ const createProduct = async (req, res) => {
     request.input("IsActive", sql.Bit, IsActive);
     request.input("CreatedDate", sql.DateTime, new Date());
     request.input("CostPerItem", sql.Decimal(18, 2), CostPerItem);
- 
+
     // SQL query to insert and return the inserted ItemID
     const result = await request.query(`
       INSERT INTO Items (
@@ -158,9 +167,9 @@ const createProduct = async (req, res) => {
         @AltUPC, @ImageUrl, @CategoryId, @IsActive, @CreatedDate, @CostPerItem
       )
     `);
- 
+
     const insertedItemID = result.recordset[0].ItemID;
- 
+
     res.status(201).json({
       success: true,
       message: "Product added successfully",
@@ -171,14 +180,14 @@ const createProduct = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
- 
-// Inventory tracking data
+
+// Inventory tracking data-------------------------------------------------------------------
 const getInventoryTrackingData = async (req, res) => {
   const { trackingType, productName, fromDate, toDate } = req.body;
- 
+
   try {
     const pool = await poolPromise;
- 
+
     const result = await pool
       .request()
       .input("p_TrackingType", sql.VarChar, trackingType)
@@ -186,14 +195,14 @@ const getInventoryTrackingData = async (req, res) => {
       .input("p_FromDate", sql.DateTime, fromDate ? new Date(fromDate) : null)
       .input("p_ToDate", sql.DateTime, toDate ? new Date(toDate) : null)
       .execute("InventoryTrackingData");
- 
+
     if (!result.recordset || result.recordset.length === 0) {
       return res.status(404).json({
         success: false,
         message: "No tracking data found",
       });
     }
- 
+
     res.status(200).json({
       success: true,
       data: result.recordset,
@@ -206,41 +215,41 @@ const getInventoryTrackingData = async (req, res) => {
     });
   }
 };
- 
-// Flash report
+
+// Flash report -----------------------------------------------------------------------------
 const getFlashReport = async (req, res) => {
   try {
     const { fromDate, toDate, invoiceNo } = req.body;
- 
+
     let whereClause = "";
- 
+
     //  Build dynamic WHERE clause
     if (fromDate) {
       const formattedFromDate = new Date(fromDate).toISOString().slice(0, 10); // yyyy-MM-dd
       whereClause += ` AND I.CreatedDateTime >= '${formattedFromDate}' `;
     }
- 
+
     if (toDate) {
       const formattedToDate = new Date(toDate).toISOString().slice(0, 10);
       // Adding interval logic like DATE_ADD in MySQL, assuming SQL Server supports date + 1
       whereClause += ` AND I.CreatedDateTime < DATEADD(DAY, 1, '${formattedToDate}') `;
     }
- 
+
     if (invoiceNo && invoiceNo.trim() !== "") {
       whereClause += ` AND I.InvoiceCode LIKE '%${invoiceNo.trim()}%' `;
     }
- 
+
     if (whereClause.trim() === "") {
       whereClause = " AND 1=1 ";
     }
- 
+
     const pool = await poolPromise;
     const result = await pool
       .request()
       .input("p_Where", sql.NVarChar, whereClause)
       .input("p_ItemID", sql.Int, 0)
       .execute("usp_GetSalesHistoryData_2");
- 
+
     res.status(200).json({
       success: true,
       data: result.recordset,
@@ -254,28 +263,28 @@ const getFlashReport = async (req, res) => {
     });
   }
 };
- 
-// Get category by id
+
+// Get category by id------------------------------------------------------------------------
 const getCategoryById = async (req, res) => {
   const { categoryId } = req.body;
- 
+
   try {
     const pool = await poolPromise;
     const result = await pool
       .request()
       .input("CategoryID", sql.Int, categoryId)
       .query("SELECT * FROM Items WHERE CategoryID = @CategoryId");
- 
+
     if (result.recordset.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Category not found",
       });
     }
- 
+
     res.status(200).json({
       success: true,
-      data: result.recordset[0],
+      data: result.recordset, // chnaged from result.recordset[0] to return all items in the category
     });
   } catch (err) {
     console.error("Error fetching category:", err);
@@ -286,14 +295,14 @@ const getCategoryById = async (req, res) => {
     });
   }
 };
- 
-// Sales report(history)
+
+// Sales report(history)---------------------------------------------------------------------
 const getSalesHistory = async (req, res) => {
   const { fromDate, toDate, paymentType, invoiceBy, invoiceCode } = req.body;
- 
+
   try {
     const pool = await poolPromise;
- 
+
     const result = await pool
       .request()
       .input("p_FromDate", sql.DateTime, fromDate ? new Date(fromDate) : null)
@@ -302,7 +311,7 @@ const getSalesHistory = async (req, res) => {
       .input("p_InvoiceBy", sql.VarChar(100), invoiceBy || null)
       .input("p_InvoiceCode", sql.VarChar(100), invoiceCode || null)
       .execute("sp_GetSalesReport");
- 
+
     res.status(200).json({
       success: true,
       data: result.recordset,
@@ -316,14 +325,16 @@ const getSalesHistory = async (req, res) => {
     });
   }
 };
- 
-// Hourly item report
+
+// Hourly item report------------------------------------------------------------------------
 const getHourlyReport = async (req, res) => {
   try {
     const { fromDate, toDate } = req.body;
 
     if (!fromDate || !toDate) {
-      return res.status(400).json({ success: false, message: "fromDate and toDate are required." });
+      return res
+        .status(400)
+        .json({ success: false, message: "fromDate and toDate are required." });
     }
 
     const formattedFromDate = new Date(fromDate).toISOString().slice(0, 10);
@@ -332,18 +343,21 @@ const getHourlyReport = async (req, res) => {
     let whereClause = `AND I.CreatedDateTime >= '${formattedFromDate}' AND I.CreatedDateTime < DATEADD(DAY, 1, '${formattedToDate}')`;
 
     const pool = await poolPromise;
-    const result = await pool.request()
+    const result = await pool
+      .request()
       .input("p_Where", sql.NVarChar, whereClause)
       .input("p_ItemID", sql.Int, 0)
       .execute("usp_GetSalesHistoryData_2");
 
-    const data = result.recordsets[0] || [];
+    const data = result.recordsets[0] || []; // make changes
 
     const hourlySummaryMap = {};
     const itemSummaryMap = {};
 
     for (const row of data) {
-      const createdDate = row.CreatedDateTime ? new Date(row.CreatedDateTime) : null;
+      const createdDate = row.CreatedDateTime
+        ? new Date(row.CreatedDateTime)
+        : null;
       const quantity = Number(row.Quantity || 0);
       const totalPrice = Number(row.TotalPrice || 0);
       const invoiceCode = row.InvoiceCode?.toString();
@@ -351,13 +365,13 @@ const getHourlyReport = async (req, res) => {
 
       // ========== Group by Hour ==========
       if (createdDate) {
-        const datePart = createdDate.toLocaleDateString('en-US');
+        const datePart = createdDate.toLocaleDateString("en-US");
         const hour = createdDate.getHours();
 
         const fromHour = hour % 12 === 0 ? 12 : hour % 12;
         const toHour = (hour + 1) % 12 === 0 ? 12 : (hour + 1) % 12;
         const fromPeriod = hour < 12 ? "AM" : "PM";
-        const toPeriod = (hour + 1) < 12 ? "AM" : "PM";
+        const toPeriod = hour + 1 < 12 ? "AM" : "PM";
 
         const fromTime = `${fromHour}${fromPeriod}`;
         const toTime = `${toHour}${toPeriod}`;
@@ -374,7 +388,8 @@ const getHourlyReport = async (req, res) => {
 
         hourlySummaryMap[timeSlot].TotalAmount += totalPrice;
         hourlySummaryMap[timeSlot].TotalItems += quantity;
-        if (invoiceCode) hourlySummaryMap[timeSlot].Transactions.add(invoiceCode);
+        if (invoiceCode)
+          hourlySummaryMap[timeSlot].Transactions.add(invoiceCode);
       }
 
       // ========== Group by Item ==========
@@ -392,18 +407,18 @@ const getHourlyReport = async (req, res) => {
 
     // Format hourly summary
     const hourlySummary = Object.values(hourlySummaryMap)
-      .map(entry => ({
+      .map((entry) => ({
         TimeSlot: entry.TimeSlot,
         TotalAmount: parseFloat(entry.TotalAmount.toFixed(2)),
         TotalItems: entry.TotalItems,
         TotalTransactions: entry.Transactions.size,
       }))
       .sort((a, b) => {
-        const parseTime = timeStr => {
+        const parseTime = (timeStr) => {
           try {
-            const [datePart, range] = timeStr.split(' ');
+            const [datePart, range] = timeStr.split(" ");
             const baseDate = new Date(datePart);
-            const fromTime = range.split('-')[0].trim();
+            const fromTime = range.split("-")[0].trim();
             const hour = new Date(`01/01/2000 ${fromTime}`).getHours();
             return new Date(baseDate.setHours(hour));
           } catch {
@@ -415,32 +430,34 @@ const getHourlyReport = async (req, res) => {
 
     // Format item summary
     const itemSummary = Object.values(itemSummaryMap)
-      .map(entry => ({
+      .map((entry) => ({
         ItemName: entry.ItemName,
         TotalPrice: parseFloat(entry.TotalPrice.toFixed(2)),
-        TotalQuantity: entry.TotalQuantity
+        TotalQuantity: entry.TotalQuantity,
       }))
       .sort((a, b) => b.TotalPrice - a.TotalPrice); // optional: sort by price
 
     res.json({
       success: true,
       hourlySummary,
-      itemSummary
+      itemSummary,
     });
   } catch (err) {
     console.error("Error in combined hourly report:", err);
-    res.status(500).json({ success: false, message: "Server error", error: err.message });
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: err.message });
   }
 };
- 
-// Get user coins
+
+// Get user coins----------------------------------------------------------------------------
 const getUserCoins = async (req, res) => {
   const { userCode } = req.body;
- 
+
   if (!userCode) {
     return res.status(400).json({ error: "UserCode required" });
   }
- 
+
   try {
     const pool = await poolPromise;
     const result = await pool.request().input("UserCode", sql.Int, userCode)
@@ -471,8 +488,448 @@ u.UserCode = @UserCode  AND  u.UserRole = 'Customer';`);
     res.status(500).json({ error: "Server error" });
   }
 };
- 
- 
+
+
+// multer setup for file upload---------------------------------------------------
+const storage = multer.memoryStorage(); // Store file in memory
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Only allow specific document types
+    const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt', '.csv', '.xls', '.xlsx'];
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    
+    if (allowedExtensions.includes(fileExtension)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF, DOC, DOCX, TXT, CSV, XLS, and XLSX files are allowed!'), false);
+    }
+  }
+});
+
+// Function to get content type based on file extension
+const getContentType = (filename) => {
+  const ext = path.extname(filename).toLowerCase();
+  const contentTypes = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.txt': 'text/plain',
+    '.csv': 'text/csv',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  };
+  
+  return contentTypes[ext] || 'application/octet-stream';
+};
+
+// Function to get file type category
+const getFileCategory = (filename) => {
+  const ext = path.extname(filename).toLowerCase();
+  
+  if (['.pdf'].includes(ext)) {
+    return 'PDF Document';
+  } else if (['.doc', '.docx'].includes(ext)) {
+    return 'Word Document';
+  } else if (['.txt'].includes(ext)) {
+    return 'Text Document';
+  } else if (['.csv'].includes(ext)) {
+    return 'CSV File';
+  } else if (['.xls', '.xlsx'].includes(ext)) {
+    return 'Excel Spreadsheet';
+  } else {
+    return 'Document';
+  }
+};
+
+// Send email with PDF attachment-----------------------------------------------------------
+const sendDocumentEmail = async (req, res) => {
+  try {
+    const { 
+      email, 
+      subject = "Your Document", 
+      message = "Please find the attached document."
+    } = req.body;
+    
+    const documentFile = req.file; // File from multipart form
+    const filename = req.body.filename || (documentFile ? documentFile.originalname : "document");
+
+    // Validation
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    if (!documentFile) {
+      return res.status(400).json({ error: "Document file is required" });
+    }
+    // Get SMTP configuration from database
+    const pool = await poolPromise;
+    const smtpResult = await pool.request()
+      .query("SELECT TOP 1 Host, Port, Username, Password FROM SMTPSettings");
+
+    if (smtpResult.recordset.length === 0) {
+      return res.status(500).json({ error: "SMTP configuration not found in database" });
+    }
+
+    const { Host, Port, Username, Password } = smtpResult.recordset[0];
+
+    // Get file details
+    const fileCategory = getFileCategory(filename);
+    const contentType = getContentType(filename);
+    const fileSize = (documentFile.size / 1024 / 1024).toFixed(2);
+
+    // Create transporter with database configuration
+    const transporter = nodemailer.createTransport({
+      host: Host,
+      port: parseInt(Port, 10),
+      secure: false,
+      requireTLS: true,
+      auth: {
+        user: Username,
+        pass: Password
+      }
+    });
+
+    // Get appropriate emoji for file type
+    const getFileEmoji = (category) => {
+      const emojis = {
+        'PDF Document': '📄',
+        'Word Document': '📝',
+        'Text Document': '📃',
+        'CSV File': '📊',
+        'Excel Spreadsheet': '📊',
+        'Document': '📄'
+      };
+      return emojis[category] || '📄';
+    };
+
+    const fileEmoji = getFileEmoji(fileCategory);
+
+    // Send email with document attachment
+    await transporter.sendMail({
+      from: Username,
+      to: email,
+      subject: subject,
+      html: `
+      <div style="max-width:600px; margin:0 auto; font-family:'Segoe UI', sans-serif; background-color:#f9f9f9; padding:20px; border-radius:10px; border:1px solid #ddd;">
+        <h2 style="color:#333;">${fileEmoji} Your Document</h2>
+        <p style="color:#555;">Hi there,</p>
+        <p style="color:#555;">
+          ${message}
+        </p>
+        <div style="background-color:#fff; padding:15px; border-radius:5px; margin:20px 0; border-left:4px solid #007bff;">
+          <p style="margin:0; color:#555;">
+            <strong>📎 Attachment:</strong> ${filename}
+          </p>
+          <p style="margin:5px 0 0 0; color:#777; font-size:14px;">
+            <strong>Type:</strong> ${fileCategory} | 
+            <strong>Size:</strong> ${fileSize} MB | 
+            <strong>Format:</strong> ${path.extname(filename).toUpperCase().substring(1)}
+          </p>
+        </div>
+        <p style="color:#999; font-size:14px;">
+          If you have any questions or need assistance accessing this document, please don't hesitate to contact us.
+        </p>
+        <hr style="margin:30px 0; border:none; border-top:1px solid #ddd;">
+        <p style="color:#aaa; font-size:12px; text-align:center;">
+          &copy; ${new Date().getFullYear()} Omnipay Solution. All rights reserved.
+        </p>
+      </div>
+      `,
+      attachments: [
+        {
+          filename: filename,
+          content: documentFile.buffer, // File buffer from multer
+          contentType: contentType
+        }
+      ]
+    });
+    
+    // Respond with success message
+    return res.status(200).json({ 
+      success: true,
+      message: `${fileCategory} "${filename}" sent successfully to ${email}`,
+      fileDetails: {
+        name: filename,
+        size: `${fileSize} MB`,
+        type: fileCategory,
+        format: path.extname(filename).toUpperCase().substring(1),
+        contentType: contentType
+      }
+    });
+
+  } catch (error) {
+    console.error("Error sending document email:", error);
+    
+    // Handle multer errors
+    if (error.message === 'Only PDF, DOC, DOCX, TXT, CSV, XLS, and XLSX files are allowed!') {
+      return res.status(400).json({ 
+        error: "Only PDF, DOC, DOCX, TXT, CSV, XLS, and XLSX files are allowed" 
+      });
+    }
+
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ 
+        error: "File too large. Maximum size is 10MB" 
+      });
+    }
+    
+    // Handle email errors
+    if (error.code === 'EAUTH') {
+      return res.status(500).json({ 
+        error: "Email authentication failed. Please check SMTP credentials in database" 
+      });
+    }
+    
+    if (error.code === 'ENOTFOUND') {
+      return res.status(500).json({ 
+        error: "SMTP server not found. Please check SMTP configuration in database" 
+      });
+    }
+
+    if (error.code === 'ECONNECTION') {
+      return res.status(500).json({ 
+        error: "Failed to connect to SMTP server. Please check SMTP settings" 
+      });
+    }
+    
+    return res.status(500).json({ 
+      error: "Failed to send document email",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// create invoice and session
+// const createInvoiceAndSession = async (req, res) => {
+//   const {
+//     InvoiceCode,
+//     UserCode,
+//     SubTotal,
+//     TotalTax,
+//     GrandTotal,
+//     CreditCardSurcharge,
+//     TotalQty,
+//     CreatedDateTime,
+//     CoinsDiscount,
+//     UserName,
+//     PaymentType
+//   } = req.body;
+
+//   try {
+//     const pool = await poolPromise;
+//     const request = pool.request();
+
+//     // Bind invoice inputs
+//     request.input("InvoiceCode", sql.VarChar, InvoiceCode);
+//     request.input("UserCode", sql.Int, UserCode);
+//     request.input("SubTotal", sql.Decimal(18, 2), SubTotal || 0);
+//     request.input("TotalTax", sql.Decimal(18, 2), TotalTax || 0);
+//     request.input("GrandTotal", sql.Decimal(18, 2), GrandTotal || 0);
+//     request.input("CreditCardSurcharge", sql.Decimal(18, 2), CreditCardSurcharge || 0);
+//     request.input("TotalQty", sql.Int, TotalQty || 0);
+//     request.input("CreatedDateTime", sql.DateTime, CreatedDateTime || new Date());
+//     request.input("CoinsDiscount", sql.Decimal(18, 2), CoinsDiscount || 0);
+//     request.input("UserName", sql.VarChar, UserName);
+//     request.input("PaymentType", sql.VarChar, PaymentType);
+
+//     // Bind checkout session inputs
+//     request.input("SessionStatus", sql.VarChar, "Pending");
+//     request.input("SessionCreatedAt", sql.DateTime, new Date());
+
+//     // Transaction: Insert invoice → Insert checkout session → Return both IDs
+//     const result = await request.query(`
+//       BEGIN TRANSACTION;
+
+//       DECLARE @InsertedInvoice TABLE (InvoiceId INT);
+
+//       -- Insert into InvoiceHeader
+//       INSERT INTO InvoiceHeader (
+//         InvoiceCode, UserCode, SubTotal, TotalTax, GrandTotal,
+//         CreditCardSurcharge, TotalQty, CreatedDateTime, CoinsDiscount,
+//         UserName, PaymentType
+//       )
+//       OUTPUT INSERTED.InvoiceId INTO @InsertedInvoice
+//       VALUES (
+//         @InvoiceCode, @UserCode, @SubTotal, @TotalTax, @GrandTotal,
+//         @CreditCardSurcharge, @TotalQty, @CreatedDateTime, @CoinsDiscount,
+//         @UserName, @PaymentType
+//       );
+
+//       DECLARE @InvoiceId INT = (SELECT InvoiceId FROM @InsertedInvoice);
+//       DECLARE @InsertedSession TABLE (SessionId INT);
+
+//       -- Insert into CheckoutSessions
+//       INSERT INTO CheckoutSessions (
+//         UserCode, TotalAmount, PaidAmount, Status, CreatedAt, InvoiceId
+//       )
+//       OUTPUT INSERTED.SessionId INTO @InsertedSession
+//       VALUES (
+//         @UserCode, @GrandTotal, 0.00, @SessionStatus, @SessionCreatedAt, @InvoiceId
+//       );
+
+//       DECLARE @SessionId INT = (SELECT SessionId FROM @InsertedSession);
+
+//       COMMIT TRANSACTION;
+
+//       SELECT @InvoiceId AS InvoiceId, @SessionId AS SessionId;
+//     `);
+
+//     const { InvoiceId, SessionId } = result.recordset[0];
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Invoice and checkout session created successfully",
+//       InvoiceId,
+//       SessionId
+//     });
+
+//   } catch (err) {
+//     console.error("Error creating Invoice and Session:", err);
+//     res.status(500).json({ success: false, message: "Internal Server Error" });
+//   }
+// };
+
+const createInvoiceAndSession = async (req, res) => {
+  const {
+    UserCode,
+    SubTotal,
+    TotalTax,
+    GrandTotal,
+    CreditCardSurcharge,
+    TotalQty,
+    CoinsDiscount,
+    UserName
+  } = req.body;
+
+  try {
+    const pool = await poolPromise;
+    const request = pool.request();
+
+    // 1️⃣ Generate sequential number for InvoiceCode
+    const latestResult = await pool.request()
+    .input("UserName", sql.VarChar, UserName)
+    .query(`
+      SELECT TOP 1 InvoiceCode 
+      FROM InvoiceHeader 
+      WHERE UserName = @UserName
+      ORDER BY InvoiceId DESC
+    `);
+
+  let newInvoiceCode;
+  if (latestResult.recordset.length > 0) {
+    const lastCode = latestResult.recordset[0].InvoiceCode;
+    const numPart = parseInt(lastCode.replace(UserName, ""), 10) || 0;
+    newInvoiceCode = `${UserName}${String(numPart + 1).padStart(6, "0")}`;
+  } else {
+    // First invoice for this user
+    newInvoiceCode = `${UserName}000001`;
+  }
+    // Bind invoice inputs
+    request.input("InvoiceCode", sql.VarChar, newInvoiceCode);
+    request.input("UserCode", sql.Int, UserCode);
+    request.input("SubTotal", sql.Decimal(18, 2), SubTotal || 0);
+    request.input("TotalTax", sql.Decimal(18, 2), TotalTax || 0);
+    request.input("GrandTotal", sql.Decimal(18, 2), GrandTotal || 0);
+    request.input("CreditCardSurcharge", sql.Decimal(18, 2), CreditCardSurcharge || 0);
+    request.input("TotalQty", sql.Int, TotalQty || 0);
+    request.input("CoinsDiscount", sql.Decimal(18, 2), CoinsDiscount || 0);
+    request.input("UserName", sql.VarChar, UserName);
+    request.input("PaymentType", sql.VarChar, "CARD"); // static value
+    request.input("SessionStatus", sql.VarChar, "Pending");
+    request.input("SessionCreatedAt", sql.DateTime, new Date());
+
+    // Transaction: Insert invoice → Insert checkout session → Return both IDs
+    const result = await request.query(`
+      BEGIN TRANSACTION;
+
+      DECLARE @InsertedInvoice TABLE (InvoiceId INT);
+
+      -- Insert into InvoiceHeader with CreatedDateTime = current date/time
+      INSERT INTO InvoiceHeader (
+        InvoiceCode, UserCode, SubTotal, TotalTax, GrandTotal,
+        CreditCardSurcharge, TotalQty, CreatedDateTime, CoinsDiscount,
+        UserName, PaymentType
+      )
+      OUTPUT INSERTED.InvoiceId INTO @InsertedInvoice
+      VALUES (
+        @InvoiceCode, @UserCode, @SubTotal, @TotalTax, @GrandTotal,
+        @CreditCardSurcharge, @TotalQty, GETDATE(), @CoinsDiscount,
+        @UserName, @PaymentType
+      );
+
+      DECLARE @InvoiceId INT = (SELECT InvoiceId FROM @InsertedInvoice);
+      DECLARE @InsertedSession TABLE (SessionId INT);
+
+      -- Insert into CheckoutSessions
+      INSERT INTO CheckoutSessions (
+        UserCode, TotalAmount, PaidAmount, Status, CreatedAt, InvoiceId
+      )
+      OUTPUT INSERTED.SessionId INTO @InsertedSession
+      VALUES (
+        @UserCode, @GrandTotal, 0.00, @SessionStatus, @SessionCreatedAt, @InvoiceId
+      );
+
+      DECLARE @SessionId INT = (SELECT SessionId FROM @InsertedSession);
+
+      COMMIT TRANSACTION;
+
+      SELECT @InvoiceId AS InvoiceId, @SessionId AS SessionId;
+    `);
+
+    const { InvoiceId, SessionId } = result.recordset[0];
+
+    res.status(201).json({
+      success: true,
+      message: "Invoice and checkout session created successfully",
+      InvoiceId,
+      SessionId
+    });
+
+  } catch (err) {
+    console.error("Error creating Invoice and Session:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
+
+// update session
+const updateCheckoutSessionStatus = async (req, res) => {
+  const { SessionId, PaidAmount } = req.body;
+
+  try {
+    const pool = await poolPromise;
+    const request = pool.request();
+
+    // Bind inputs
+    request.input("SessionId", sql.Int, SessionId);
+    request.input("PaidAmount", sql.Decimal(18, 2), PaidAmount);
+    request.input("Status", sql.VarChar, "Success");
+    request.input("CompletedAt", sql.DateTime, new Date());
+
+    // Update query
+    await request.query(`
+      UPDATE CheckoutSessions
+      SET PaidAmount = @PaidAmount,
+          Status = @Status,
+          CompletedAt = @CompletedAt
+      WHERE SessionId = @SessionId;
+    `);
+
+    res.status(200).json({
+      success: true,
+      message: "Checkout session updated to Success"
+    });
+
+  } catch (err) {
+    console.error("Error updating CheckoutSession:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+};
+
 module.exports = {
   getAllProducts,
   getProductByUPC,
@@ -484,8 +941,11 @@ module.exports = {
   getFlashReport,
   getCategoryById,
   getSalesHistory,
- getHourlyReport,
+  getHourlyReport,
   getUserCoins,
+  sendDocumentEmail,
+  upload, // Export multer upload middleware
+  getContentType,
+  createInvoiceAndSession,
+  updateCheckoutSessionStatus
 };
- 
- 
