@@ -10,6 +10,7 @@ const config = {
   options: {
     encrypt: false, 
     trustServerCertificate: true, // For local dev/test
+    port:1434
   },
   pool: {
     max: 10,
@@ -30,4 +31,5 @@ const poolPromise = new sql.ConnectionPool(config)
   });
 
 module.exports = { sql, poolPromise };
+
 
