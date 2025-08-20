@@ -7,6 +7,7 @@ const config = {
   password: process.env.DB_PASSWORD,
   server: process.env.DB_SERVER,
   database: process.env.DB_DATABASE,
+  port: parseInt(process.env.DB_PORT, 10),
   options: {
     encrypt: false, 
     trustServerCertificate: true, // For local dev/test
@@ -30,6 +31,7 @@ const poolPromise = new sql.ConnectionPool(config)
   });
 
 module.exports = { sql, poolPromise };
+
 
 
 
