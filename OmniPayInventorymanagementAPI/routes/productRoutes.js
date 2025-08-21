@@ -22,6 +22,7 @@ const {
  
 // GET /products
 // static routes
+router.get("/bulkpricing/:itemId", getBulkPricing);
 router.get("/categories", getAllCategories);
 router.get("/sales-tax", getActiveSalesTax);
 router.get("/config/creditcardcharge", getCreditCardChargeConfig);
@@ -34,8 +35,8 @@ router.post("/userCoins", getUserCoins);
 router.post("/sendMail", upload.single('document'), sendDocumentEmail);
 router.post("/create-invoiceAndSession", createInvoiceAndSession);
 router.put("/update-session" , updateCheckoutSessionStatus);
-// routes/product.js
-router.get("/bulkpricing/:itemId", getBulkPricing);
+
+
 
  
 // dynamic routes
