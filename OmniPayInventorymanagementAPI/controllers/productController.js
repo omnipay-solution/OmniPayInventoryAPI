@@ -119,6 +119,7 @@ const createProduct = async (req, res) => {
       CategoryId,
       IsActive,
       CostPerItem,
+      BulkPricingTiers   
     } = req.body;
 
     const pool = await poolPromise;
@@ -169,6 +170,22 @@ const createProduct = async (req, res) => {
     `);
 
     const insertedItemID = result.recordset[0].ItemID;
+
+      // Insert bulk pricing tiers if provided
+    if (Array.isArray(BulkPricingTiers) && BulkPricingTiers.length > 0) {
+      for (const tier of BulkPricingTiers) {
+        const { Quantity, Pricing, DiscountType } = tier;
+
+        await pool.request()
+          .input("p_Action", sql.VarChar, "INSERT")
+          .input("p_ItemID", sql.Int, insertedItemID)
+          .input("p_BulkPricingID", sql.Int, null)
+          .input("p_Quantity", sql.Int, Quantity)
+          .input("p_Pricing", sql.Decimal(12, 2), Pricing)
+          .input("p_DiscountType", sql.VarChar, DiscountType)
+          .execute("BulkPricing_Crud");
+      }
+    }
 
     res.status(201).json({
       success: true,
