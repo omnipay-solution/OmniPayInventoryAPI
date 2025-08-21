@@ -168,20 +168,21 @@ const createProduct = async (req, res) => {
 
     const insertedItemID = result.recordset[0].ItemID;
 
-    // ✅ Insert BulkPricing tiers if provided
+    // ✅ Direct insert BulkPricing tiers (no SP)
     if (Array.isArray(BulkPricingTiers) && BulkPricingTiers.length > 0) {
       for (const tier of BulkPricingTiers) {
         const { Quantity, Pricing, DiscountType } = tier;
 
         const bulkReq = new sql.Request(transaction);
-        bulkReq.input("p_Action", sql.VarChar, "INSERT");
-        bulkReq.input("p_ItemID", sql.Int, insertedItemID);
-        bulkReq.input("p_BulkPricingID", sql.Int, 0); // if live SP doesn’t allow NULL, pass 0
-        bulkReq.input("p_Quantity", sql.Int, Quantity);
-        bulkReq.input("p_Pricing", sql.Decimal(12, 2), Pricing);
-        bulkReq.input("p_DiscountType", sql.VarChar, DiscountType);
+        bulkReq.input("ItemID", sql.Int, insertedItemID);
+        bulkReq.input("Quantity", sql.Int, Quantity);
+        bulkReq.input("Pricing", sql.Decimal(12, 2), Pricing);
+        bulkReq.input("DiscountType", sql.VarChar, DiscountType);
 
-        await bulkReq.execute("BulkPricing_Crud");
+        await bulkReq.query(`
+          INSERT INTO BulkPricing (ItemID, Quantity, Pricing, DiscountType)
+          VALUES (@ItemID, @Quantity, @Pricing, @DiscountType)
+        `);
       }
     }
 
@@ -196,7 +197,11 @@ const createProduct = async (req, res) => {
   } catch (err) {
     console.error("Error inserting product:", err);
     await transaction.rollback();
-    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message
+    });
   }
 };
 
