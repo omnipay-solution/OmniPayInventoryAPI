@@ -176,7 +176,7 @@ const createProduct = async (req, res) => {
         const bulkReq = new sql.Request(transaction);
         bulkReq.input("p_Action", sql.VarChar, "INSERT");
         bulkReq.input("p_ItemID", sql.Int, insertedItemID);
-        bulkReq.input("p_BulkPricingID", sql.Int, null); // if live SP doesn’t allow NULL, pass 0
+        bulkReq.input("p_BulkPricingID", sql.Int, 0); // if live SP doesn’t allow NULL, pass 0
         bulkReq.input("p_Quantity", sql.Int, Quantity);
         bulkReq.input("p_Pricing", sql.Decimal(12, 2), Pricing);
         bulkReq.input("p_DiscountType", sql.VarChar, DiscountType);
