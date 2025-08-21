@@ -16,7 +16,8 @@ const {
   sendDocumentEmail,
   upload, // Import multer upload middleware
   createInvoiceAndSession,
-  updateCheckoutSessionStatus
+  updateCheckoutSessionStatus,
+  getBulkPricing
 } = require("../controllers/productController");
  
 // GET /products
@@ -33,6 +34,9 @@ router.post("/userCoins", getUserCoins);
 router.post("/sendMail", upload.single('document'), sendDocumentEmail);
 router.post("/create-invoiceAndSession", createInvoiceAndSession);
 router.put("/update-session" , updateCheckoutSessionStatus);
+// routes/product.js
+router.get("/bulkpricing/:itemId", getBulkPricing);
+
  
 // dynamic routes
 router.get("/", getAllProducts);
