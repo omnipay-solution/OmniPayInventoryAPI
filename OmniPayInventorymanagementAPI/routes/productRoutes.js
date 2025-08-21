@@ -22,7 +22,7 @@ const {
  
 // GET /products
 // static routes
-router.get("/bulkpricing/:itemId", getBulkPricing);
+router.get("/bulkpricing/:itemId([0-9]{4})", getBulkPricing);
 router.get("/categories", getAllCategories);
 router.get("/sales-tax", getActiveSalesTax);
 router.get("/config/creditcardcharge", getCreditCardChargeConfig);
