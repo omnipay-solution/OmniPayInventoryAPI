@@ -947,59 +947,6 @@ const updateCheckoutSessionStatus = async (req, res) => {
   }
 };
 
-// ✅ GET /api/bulkpricing/:itemId
-const getBulkPricing = async (req, res) => {
-  try {
-    const { itemId } = req.params;
-
-    if (!itemId) {
-      return res.status(400).json({
-        success: false,
-        message: "ItemID is required"
-      });
-    }
-
-    const pool = await poolPromise;
-    const request = pool.request();
-
-    request.input("ItemID", sql.Int, itemId);
-
-    const result = await request.query(`
-      SELECT 
-        BulkPricingID,
-        ItemID,
-        Quantity,
-        Pricing,
-        DiscountType
-      FROM BulkPricing
-      WHERE ItemID = @ItemID
-      ORDER BY Quantity ASC
-    `);
-
-    if (result.recordset.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No bulk pricing found for this ItemID"
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      itemId: itemId,
-      bulkPricing: result.recordset
-    });
-
-  } catch (err) {
-    console.error("Error fetching bulk pricing:", err);
-    res.status(500).json({
-      success: false,
-      message: "Internal Server Error",
-      error: err.message
-    });
-  }
-};
-
-
 module.exports = {
   getAllProducts,
   getProductByUPC,
@@ -1017,6 +964,5 @@ module.exports = {
   upload, // Export multer upload middleware
   getContentType,
   createInvoiceAndSession,
-  updateCheckoutSessionStatus,
-  getBulkPricing
+  updateCheckoutSessionStatus
 };
