@@ -31,3 +31,7 @@ const poolPromise = new sql.ConnectionPool(config)
 
 module.exports = { sql, poolPromise };
 
+
+
+
+
