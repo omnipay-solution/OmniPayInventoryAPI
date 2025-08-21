@@ -16,13 +16,11 @@ const {
   sendDocumentEmail,
   upload, // Import multer upload middleware
   createInvoiceAndSession,
-  updateCheckoutSessionStatus,
-  getBulkPricing
+  updateCheckoutSessionStatus
 } = require("../controllers/productController");
  
 // GET /products
 // static routes
-router.get("/bulkpricing/:itemId([0-9]{4})", getBulkPricing);
 router.get("/categories", getAllCategories);
 router.get("/sales-tax", getActiveSalesTax);
 router.get("/config/creditcardcharge", getCreditCardChargeConfig);
