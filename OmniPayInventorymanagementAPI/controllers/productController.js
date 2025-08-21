@@ -97,6 +97,8 @@ const getCreditCardChargeConfig = async (req, res) => {
 
 // Create a new product----------------------------------------------------------------------
 const createProduct = async (req, res) => {
+  const transaction = new sql.Transaction(await poolPromise);
+
   try {
     const {
       Name,
@@ -119,20 +121,16 @@ const createProduct = async (req, res) => {
       CategoryId,
       IsActive,
       CostPerItem,
-      BulkPricingTiers   
+      BulkPricingTiers
     } = req.body;
 
-    const pool = await poolPromise;
-    const request = pool.request();
+    await transaction.begin();
 
-    // Bind inputs
+    const request = new sql.Request(transaction);
+
     request.input("Name", sql.VarChar, Name);
     request.input("UPC", sql.VarChar, UPC);
-    request.input(
-      "Additional_Description",
-      sql.VarChar,
-      Additional_Description
-    );
+    request.input("Additional_Description", sql.VarChar, Additional_Description);
     request.input("ItemCost", sql.Decimal(12, 2), ItemCost);
     request.input("ChargedCost", sql.Decimal(12, 2), ChargedCost);
     request.input("Sales_Tax", sql.Bit, Sales_Tax);
@@ -152,7 +150,6 @@ const createProduct = async (req, res) => {
     request.input("CreatedDate", sql.DateTime, new Date());
     request.input("CostPerItem", sql.Decimal(18, 2), CostPerItem);
 
-    // SQL query to insert and return the inserted ItemID
     const result = await request.query(`
       INSERT INTO Items (
         Name, UPC, Additional_Description, ItemCost, ChargedCost,
@@ -171,32 +168,38 @@ const createProduct = async (req, res) => {
 
     const insertedItemID = result.recordset[0].ItemID;
 
-      // Insert bulk pricing tiers if provided
+    // ✅ Insert BulkPricing tiers if provided
     if (Array.isArray(BulkPricingTiers) && BulkPricingTiers.length > 0) {
       for (const tier of BulkPricingTiers) {
         const { Quantity, Pricing, DiscountType } = tier;
 
-        await pool.request()
-          .input("p_Action", sql.VarChar, "INSERT")
-          .input("p_ItemID", sql.Int, insertedItemID)
-          .input("p_BulkPricingID", sql.Int, null)
-          .input("p_Quantity", sql.Int, Quantity)
-          .input("p_Pricing", sql.Decimal(12, 2), Pricing)
-          .input("p_DiscountType", sql.VarChar, DiscountType)
-          .execute("BulkPricing_Crud");
+        const bulkReq = new sql.Request(transaction);
+        bulkReq.input("p_Action", sql.VarChar, "INSERT");
+        bulkReq.input("p_ItemID", sql.Int, insertedItemID);
+        bulkReq.input("p_BulkPricingID", sql.Int, null); // if live SP doesn’t allow NULL, pass 0
+        bulkReq.input("p_Quantity", sql.Int, Quantity);
+        bulkReq.input("p_Pricing", sql.Decimal(12, 2), Pricing);
+        bulkReq.input("p_DiscountType", sql.VarChar, DiscountType);
+
+        await bulkReq.execute("BulkPricing_Crud");
       }
     }
 
+    await transaction.commit();
+
     res.status(201).json({
       success: true,
-      message: "Product added successfully",
-      ItemID: insertedItemID,
+      message: "Product added successfully with bulk pricing",
+      ItemID: insertedItemID
     });
+
   } catch (err) {
     console.error("Error inserting product:", err);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    await transaction.rollback();
+    res.status(500).json({ success: false, message: "Internal Server Error", error: err.message });
   }
 };
+
 
 // Inventory tracking data-------------------------------------------------------------------
 const getInventoryTrackingData = async (req, res) => {
