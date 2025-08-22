@@ -18,7 +18,7 @@ const login = async (req, res) => {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
-    res.status(500).json({
+    res.status(200).json({
       message: 'Login successful',
       user: {
         LUserCode: user.UserCode,
@@ -37,5 +37,4 @@ const login = async (req, res) => {
 module.exports = {
   login
 };
-
 
