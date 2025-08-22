@@ -176,14 +176,14 @@ const createProduct = async (req, res) => {
       for (const tier of BulkPricingTiers) {
         const { Quantity, Pricing, DiscountType } = tier;
 
-        await pool.request()
-          .input("p_Action", sql.VarChar, "INSERT")
-          .input("p_ItemID", sql.Int, insertedItemID)
-          .input("p_BulkPricingID", sql.Int, null)
-          .input("p_Quantity", sql.Int, Quantity)
-          .input("p_Pricing", sql.Decimal(12, 2), Pricing)
-          .input("p_DiscountType", sql.VarChar, DiscountType)
-          .execute("BulkPricing_Crud");
+        const request = pool.request();
+          request.input("p_Action", sql.VarChar, "INSERT")
+          request.input("p_ItemID", sql.Int, insertedItemID)
+          request.input("p_BulkPricingID", sql.Int, 0)
+          request.input("p_Quantity", sql.Int, Quantity)
+          request.input("p_Pricing", sql.Decimal(12, 2), Pricing)
+          request.input("p_DiscountType", sql.VarChar, DiscountType)
+         await request.execute("BulkPricing_Crud");
       }
     }
 
@@ -947,6 +947,167 @@ const updateCheckoutSessionStatus = async (req, res) => {
   }
 };
 
+// Calculate final price with bulk pricing---------------------------------------------------
+const getProductsFinalPrice = async (req, res) => {
+  const { products } = req.body; 
+  // products = [{ ItemID: 5388, Qty: 25 }, { ItemID: 1234, Qty: 10 }]
+
+  if (!products || !Array.isArray(products) || products.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Products array is required in request body",
+    });
+  }
+
+  try {
+    const pool = await poolPromise;
+    const responseData = [];
+
+    for (let p of products) {
+      const { ItemID, Qty } = p;
+
+      // 1. Fetch item
+      const itemResult = await pool
+        .request()
+        .input("ItemID", sql.Int, ItemID)
+        .query("SELECT ItemID, Name, Convert(decimal(18,0),ISNULL(ChargedCost, ItemCost)) AS ChargedCost FROM Items WHERE ItemID = @ItemID");
+
+      if (itemResult.recordset.length === 0) {
+        responseData.push({
+          ItemID,
+          Qty,
+          error: "Item not found",
+        });
+        continue;
+      }
+
+      const item = itemResult.recordset[0];
+
+      // 2. Check BulkPricing table
+      const bulkResult = await pool
+        .request()
+        .input("ItemID", sql.Int, ItemID)
+        .input("Qty", sql.Int, Qty)
+        .query(`
+          SELECT TOP 1 Quantity, Pricing, DiscountType
+          FROM BulkPricing
+          WHERE ItemID = @ItemID AND Quantity = @Qty
+          ORDER BY Quantity DESC
+        `);
+
+      let finalUnitPrice = item.ChargedCost;
+      let appliedTier = null;
+
+      if (bulkResult.recordset.length > 0) {
+        appliedTier = bulkResult.recordset[0];
+
+        if (appliedTier.DiscountType === "$") {
+          // Absolute bulk price
+          finalUnitPrice = appliedTier.Pricing;
+        } else if (appliedTier.DiscountType === "%") {
+          // Percentage discount
+          finalUnitPrice = item.ChargedCost * Qty - ((item.ChargedCost * Qty) * appliedTier.Pricing / 100);
+        }
+      }
+
+      // 3. Push product summary
+      responseData.push({
+        ItemID: item.ItemID,
+        ItemName: item.Name,
+        Qty,
+        UnitPrice: item.ChargedCost,
+        FinalPrice: appliedTier ? finalUnitPrice : finalUnitPrice * Qty,
+      });
+    }
+
+    // 4. Return result
+    res.status(200).json({
+      success: true,
+      data: responseData,
+    });
+  } catch (err) {
+    console.error("Error calculating final price:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
+
+// Calculate bill with subtotal, coins discount, tax, and total--------------------------------
+const calculateBill = async (req, res) => {
+  const { items, UserCode } = req.body;
+  // items = [{ ItemID, Qty, UnitPrice, FinalPrice }]
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: "Items array is required",
+    });
+  }
+
+  try {
+    const pool = await poolPromise;
+
+    // 1. Subtotal from final price
+    let subtotal = items.reduce((acc, item) => acc + (item.FinalPrice || 0), 0);
+
+    let coinsDiscount = 0;
+
+    // 2. If user is passed, calculate discount
+    if (UserCode) {
+      const userResult = await pool
+        .request()
+        .input("UserCode", sql.Int, UserCode)
+        .query(`
+          SELECT 
+              u.UserCode,
+              u.AvailableCoins,
+              CASE
+                WHEN u.AvailableCoins >= 10000 THEN (u.AvailableCoins / 10000) * 5
+                ELSE 0
+              END AS CoinsDiscount
+          FROM Users u
+          WHERE u.UserCode = @UserCode AND u.UserRole = 'Customer'
+        `);
+
+        if (userResult.recordset.length > 0) {
+        coinsDiscount = userResult.recordset[0].CoinsDiscount;
+      }
+    }
+
+    // 3. Calculate taxable amount
+    const taxableAmount = subtotal - coinsDiscount;
+
+    // 4. Fetch tax rate from Company table
+    const tax = await pool.request().query(`SELECT SalesTax from Company where isActive = 1`);
+    const taxRate = tax.recordset.length > 0 ? tax.recordset[0].SalesTax : 6.625; // Default to 6.625% if not found
+    const taxAmount = (taxableAmount * taxRate) / 100;
+
+    // 5. Total
+    const total = taxableAmount + taxAmount;
+
+    res.status(200).json({
+      success: true,
+      summary: {
+        Subtotal: subtotal,
+        CoinsDiscount: coinsDiscount,
+        Tax: taxAmount,
+        Total: total,
+      }
+    });
+  } catch (err) {
+    console.error("Error calculating bill:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal Server Error",
+      error: err.message,
+    });
+  }
+};
+
+
 module.exports = {
   getAllProducts,
   getProductByUPC,
@@ -964,5 +1125,7 @@ module.exports = {
   upload, // Export multer upload middleware
   getContentType,
   createInvoiceAndSession,
-  updateCheckoutSessionStatus
+  updateCheckoutSessionStatus,
+  getProductsFinalPrice,
+  calculateBill
 };

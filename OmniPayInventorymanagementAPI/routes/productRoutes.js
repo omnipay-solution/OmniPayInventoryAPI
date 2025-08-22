@@ -16,7 +16,9 @@ const {
   sendDocumentEmail,
   upload, // Import multer upload middleware
   createInvoiceAndSession,
-  updateCheckoutSessionStatus
+  updateCheckoutSessionStatus,
+  getProductsFinalPrice,
+  calculateBill
 } = require("../controllers/productController");
  
 // GET /products
@@ -32,8 +34,13 @@ router.post("/hourly-report", getHourlyReport);
 router.post("/userCoins", getUserCoins);
 router.post("/sendMail", upload.single('document'), sendDocumentEmail);
 router.post("/create-invoiceAndSession", createInvoiceAndSession);
-router.put("/update-session" , updateCheckoutSessionStatus);
+router.put("/update-session", updateCheckoutSessionStatus);
+router.post("/final-price", getProductsFinalPrice); 
+router.post("/calculate-bill", calculateBill);
  
+
+
+
 // dynamic routes
 router.get("/", getAllProducts);
 router.post("/", createProduct);
