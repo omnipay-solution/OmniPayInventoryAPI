@@ -34,6 +34,9 @@ router.post("/hourly-report", getHourlyReport);
 router.post("/userCoins", getUserCoins);
 router.post("/sendMail", upload.single('document'), sendDocumentEmail);
 router.post("/create-invoiceAndSession", createInvoiceAndSession);
+router.put("/update-session", updateCheckoutSessionStatus);
+router.post("/final-price", getProductsFinalPrice); 
+router.post("/calculate-bill", calculateBill);
  
 
 
