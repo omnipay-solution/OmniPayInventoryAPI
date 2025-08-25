@@ -119,7 +119,7 @@ const createProduct = async (req, res) => {
       CategoryId,
       IsActive,
       CostPerItem,
-      BulkPricingTiers   
+      BulkPricingTiers,
     } = req.body;
 
     const pool = await poolPromise;
@@ -171,19 +171,19 @@ const createProduct = async (req, res) => {
 
     const insertedItemID = result.recordset[0].ItemID;
 
-      // Insert bulk pricing tiers if provided
+    // Insert bulk pricing tiers if provided
     if (Array.isArray(BulkPricingTiers) && BulkPricingTiers.length > 0) {
       for (const tier of BulkPricingTiers) {
         const { Quantity, Pricing, DiscountType } = tier;
 
         const request = pool.request();
-          request.input("p_Action", sql.VarChar, "INSERT")
-          request.input("p_ItemID", sql.Int, insertedItemID)
-          request.input("p_BulkPricingID", sql.Int, 0)
-          request.input("p_Quantity", sql.Int, Quantity)
-          request.input("p_Pricing", sql.Decimal(12, 2), Pricing)
-          request.input("p_DiscountType", sql.VarChar, DiscountType)
-         await request.execute("BulkPricing_Crud");
+        request.input("p_Action", sql.VarChar, "INSERT");
+        request.input("p_ItemID", sql.Int, insertedItemID);
+        request.input("p_BulkPricingID", sql.Int, 0);
+        request.input("p_Quantity", sql.Int, Quantity);
+        request.input("p_Pricing", sql.Decimal(12, 2), Pricing);
+        request.input("p_DiscountType", sql.VarChar, DiscountType);
+        await request.execute("BulkPricing_Crud");
       }
     }
 
@@ -287,10 +287,38 @@ const getCategoryById = async (req, res) => {
 
   try {
     const pool = await poolPromise;
-    const result = await pool
-      .request()
-      .input("CategoryID", sql.Int, categoryId)
-      .query("SELECT * FROM Items WHERE CategoryID = @CategoryId");
+    const result = await pool.request().input("CategoryID", sql.Int, categoryId)
+      .query(`SELECT 
+    ItemID,
+    CONCAT(
+        Name, 
+        CASE WHEN UPC IS NOT NULL THEN CONCAT(' (', UPC, ')') ELSE '' END
+    ) AS Name,
+    UPC,
+    Additional_Description,
+    ItemCost,
+    CEILING(ChargedCost * 20) / 20 AS ChargedCost, 
+    Sales_Tax,
+    InStock,
+    VendorName, 
+    CaseCost,
+    NumberInCase,
+    SalesTax,
+    QuickADD,
+    DroppedItem,
+    EnableStockAlert,
+    StockAlertLimit,
+    AltUPC,
+    ImageUrl,
+    CategoryId,
+    IsActive,
+    CreatedDate,
+    CostPerItem
+FROM Items
+WHERE IsActive = 1
+  AND CategoryId = @CategoryId
+ORDER BY Name;
+`);
 
     if (result.recordset.length === 0) {
       return res.status(404).json({
@@ -506,7 +534,6 @@ u.UserCode = @UserCode  AND  u.UserRole = 'Customer';`);
   }
 };
 
-
 // multer setup for file upload---------------------------------------------------
 const storage = multer.memoryStorage(); // Store file in memory
 const upload = multer({
@@ -516,63 +543,80 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Only allow specific document types
-    const allowedExtensions = ['.pdf', '.doc', '.docx', '.txt', '.csv', '.xls', '.xlsx'];
+    const allowedExtensions = [
+      ".pdf",
+      ".doc",
+      ".docx",
+      ".txt",
+      ".csv",
+      ".xls",
+      ".xlsx",
+    ];
     const fileExtension = path.extname(file.originalname).toLowerCase();
-    
+
     if (allowedExtensions.includes(fileExtension)) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF, DOC, DOCX, TXT, CSV, XLS, and XLSX files are allowed!'), false);
+      cb(
+        new Error(
+          "Only PDF, DOC, DOCX, TXT, CSV, XLS, and XLSX files are allowed!"
+        ),
+        false
+      );
     }
-  }
+  },
 });
 
 // Function to get content type based on file extension
 const getContentType = (filename) => {
   const ext = path.extname(filename).toLowerCase();
   const contentTypes = {
-    '.pdf': 'application/pdf',
-    '.doc': 'application/msword',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.txt': 'text/plain',
-    '.csv': 'text/csv',
-    '.xls': 'application/vnd.ms-excel',
-    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx":
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx":
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   };
-  
-  return contentTypes[ext] || 'application/octet-stream';
+
+  return contentTypes[ext] || "application/octet-stream";
 };
 
 // Function to get file type category
 const getFileCategory = (filename) => {
   const ext = path.extname(filename).toLowerCase();
-  
-  if (['.pdf'].includes(ext)) {
-    return 'PDF Document';
-  } else if (['.doc', '.docx'].includes(ext)) {
-    return 'Word Document';
-  } else if (['.txt'].includes(ext)) {
-    return 'Text Document';
-  } else if (['.csv'].includes(ext)) {
-    return 'CSV File';
-  } else if (['.xls', '.xlsx'].includes(ext)) {
-    return 'Excel Spreadsheet';
+
+  if ([".pdf"].includes(ext)) {
+    return "PDF Document";
+  } else if ([".doc", ".docx"].includes(ext)) {
+    return "Word Document";
+  } else if ([".txt"].includes(ext)) {
+    return "Text Document";
+  } else if ([".csv"].includes(ext)) {
+    return "CSV File";
+  } else if ([".xls", ".xlsx"].includes(ext)) {
+    return "Excel Spreadsheet";
   } else {
-    return 'Document';
+    return "Document";
   }
 };
 
 // Send email with PDF attachment-----------------------------------------------------------
 const sendDocumentEmail = async (req, res) => {
   try {
-    const { 
-      email, 
-      subject = "Your Document", 
-      message = "Please find the attached document."
+    const {
+      email,
+      subject = "Your Document",
+      message = "Please find the attached document.",
     } = req.body;
-    
+
     const documentFile = req.file; // File from multipart form
-    const filename = req.body.filename || (documentFile ? documentFile.originalname : "document");
+    const filename =
+      req.body.filename ||
+      (documentFile ? documentFile.originalname : "document");
 
     // Validation
     if (!email) {
@@ -584,11 +628,14 @@ const sendDocumentEmail = async (req, res) => {
     }
     // Get SMTP configuration from database
     const pool = await poolPromise;
-    const smtpResult = await pool.request()
+    const smtpResult = await pool
+      .request()
       .query("SELECT TOP 1 Host, Port, Username, Password FROM SMTPSettings");
 
     if (smtpResult.recordset.length === 0) {
-      return res.status(500).json({ error: "SMTP configuration not found in database" });
+      return res
+        .status(500)
+        .json({ error: "SMTP configuration not found in database" });
     }
 
     const { Host, Port, Username, Password } = smtpResult.recordset[0];
@@ -606,21 +653,21 @@ const sendDocumentEmail = async (req, res) => {
       requireTLS: true,
       auth: {
         user: Username,
-        pass: Password
-      }
+        pass: Password,
+      },
     });
 
     // Get appropriate emoji for file type
     const getFileEmoji = (category) => {
       const emojis = {
-        'PDF Document': '📄',
-        'Word Document': '📝',
-        'Text Document': '📃',
-        'CSV File': '📊',
-        'Excel Spreadsheet': '📊',
-        'Document': '📄'
+        "PDF Document": "📄",
+        "Word Document": "📝",
+        "Text Document": "📃",
+        "CSV File": "📊",
+        "Excel Spreadsheet": "📊",
+        Document: "📄",
       };
-      return emojis[category] || '📄';
+      return emojis[category] || "📄";
     };
 
     const fileEmoji = getFileEmoji(fileCategory);
@@ -644,7 +691,10 @@ const sendDocumentEmail = async (req, res) => {
           <p style="margin:5px 0 0 0; color:#777; font-size:14px;">
             <strong>Type:</strong> ${fileCategory} | 
             <strong>Size:</strong> ${fileSize} MB | 
-            <strong>Format:</strong> ${path.extname(filename).toUpperCase().substring(1)}
+            <strong>Format:</strong> ${path
+              .extname(filename)
+              .toUpperCase()
+              .substring(1)}
           </p>
         </div>
         <p style="color:#999; font-size:14px;">
@@ -660,13 +710,13 @@ const sendDocumentEmail = async (req, res) => {
         {
           filename: filename,
           content: documentFile.buffer, // File buffer from multer
-          contentType: contentType
-        }
-      ]
+          contentType: contentType,
+        },
+      ],
     });
-    
+
     // Respond with success message
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
       message: `${fileCategory} "${filename}" sent successfully to ${email}`,
       fileDetails: {
@@ -674,48 +724,53 @@ const sendDocumentEmail = async (req, res) => {
         size: `${fileSize} MB`,
         type: fileCategory,
         format: path.extname(filename).toUpperCase().substring(1),
-        contentType: contentType
-      }
+        contentType: contentType,
+      },
     });
-
   } catch (error) {
     console.error("Error sending document email:", error);
-    
+
     // Handle multer errors
-    if (error.message === 'Only PDF, DOC, DOCX, TXT, CSV, XLS, and XLSX files are allowed!') {
-      return res.status(400).json({ 
-        error: "Only PDF, DOC, DOCX, TXT, CSV, XLS, and XLSX files are allowed" 
+    if (
+      error.message ===
+      "Only PDF, DOC, DOCX, TXT, CSV, XLS, and XLSX files are allowed!"
+    ) {
+      return res.status(400).json({
+        error: "Only PDF, DOC, DOCX, TXT, CSV, XLS, and XLSX files are allowed",
       });
     }
 
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ 
-        error: "File too large. Maximum size is 10MB" 
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return res.status(400).json({
+        error: "File too large. Maximum size is 10MB",
       });
     }
-    
+
     // Handle email errors
-    if (error.code === 'EAUTH') {
-      return res.status(500).json({ 
-        error: "Email authentication failed. Please check SMTP credentials in database" 
-      });
-    }
-    
-    if (error.code === 'ENOTFOUND') {
-      return res.status(500).json({ 
-        error: "SMTP server not found. Please check SMTP configuration in database" 
+    if (error.code === "EAUTH") {
+      return res.status(500).json({
+        error:
+          "Email authentication failed. Please check SMTP credentials in database",
       });
     }
 
-    if (error.code === 'ECONNECTION') {
-      return res.status(500).json({ 
-        error: "Failed to connect to SMTP server. Please check SMTP settings" 
+    if (error.code === "ENOTFOUND") {
+      return res.status(500).json({
+        error:
+          "SMTP server not found. Please check SMTP configuration in database",
       });
     }
-    
-    return res.status(500).json({ 
+
+    if (error.code === "ECONNECTION") {
+      return res.status(500).json({
+        error: "Failed to connect to SMTP server. Please check SMTP settings",
+      });
+    }
+
+    return res.status(500).json({
       error: "Failed to send document email",
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details:
+        process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -819,7 +874,7 @@ const createInvoiceAndSession = async (req, res) => {
     CreditCardSurcharge,
     TotalQty,
     CoinsDiscount,
-    UserName
+    UserName,
   } = req.body;
 
   try {
@@ -827,31 +882,35 @@ const createInvoiceAndSession = async (req, res) => {
     const request = pool.request();
 
     // 1️⃣ Generate sequential number for InvoiceCode
-    const latestResult = await pool.request()
-    .input("UserName", sql.VarChar, UserName)
-    .query(`
+    const latestResult = await pool
+      .request()
+      .input("UserName", sql.VarChar, UserName).query(`
       SELECT TOP 1 InvoiceCode 
       FROM InvoiceHeader 
       WHERE UserName = @UserName
       ORDER BY InvoiceId DESC
     `);
 
-  let newInvoiceCode;
-  if (latestResult.recordset.length > 0) {
-    const lastCode = latestResult.recordset[0].InvoiceCode;
-    const numPart = parseInt(lastCode.replace(UserName, ""), 10) || 0;
-    newInvoiceCode = `${UserName}${String(numPart + 1).padStart(6, "0")}`;
-  } else {
-    // First invoice for this user
-    newInvoiceCode = `${UserName}000001`;
-  }
+    let newInvoiceCode;
+    if (latestResult.recordset.length > 0) {
+      const lastCode = latestResult.recordset[0].InvoiceCode;
+      const numPart = parseInt(lastCode.replace(UserName, ""), 10) || 0;
+      newInvoiceCode = `${UserName}${String(numPart + 1).padStart(6, "0")}`;
+    } else {
+      // First invoice for this user
+      newInvoiceCode = `${UserName}000001`;
+    }
     // Bind invoice inputs
     request.input("InvoiceCode", sql.VarChar, newInvoiceCode);
     request.input("UserCode", sql.Int, UserCode);
     request.input("SubTotal", sql.Decimal(18, 2), SubTotal || 0);
     request.input("TotalTax", sql.Decimal(18, 2), TotalTax || 0);
     request.input("GrandTotal", sql.Decimal(18, 2), GrandTotal || 0);
-    request.input("CreditCardSurcharge", sql.Decimal(18, 2), CreditCardSurcharge || 0);
+    request.input(
+      "CreditCardSurcharge",
+      sql.Decimal(18, 2),
+      CreditCardSurcharge || 0
+    );
     request.input("TotalQty", sql.Int, TotalQty || 0);
     request.input("CoinsDiscount", sql.Decimal(18, 2), CoinsDiscount || 0);
     request.input("UserName", sql.VarChar, UserName);
@@ -903,15 +962,13 @@ const createInvoiceAndSession = async (req, res) => {
       success: true,
       message: "Invoice and checkout session created successfully",
       InvoiceId,
-      SessionId
+      SessionId,
     });
-
   } catch (err) {
     console.error("Error creating Invoice and Session:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
-
 
 // update session
 const updateCheckoutSessionStatus = async (req, res) => {
@@ -938,9 +995,8 @@ const updateCheckoutSessionStatus = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Checkout session updated to Success"
+      message: "Checkout session updated to Success",
     });
-
   } catch (err) {
     console.error("Error updating CheckoutSession:", err);
     res.status(500).json({ success: false, message: "Internal Server Error" });
@@ -949,7 +1005,7 @@ const updateCheckoutSessionStatus = async (req, res) => {
 
 // Calculate final price with bulk pricing---------------------------------------------------
 const getProductsFinalPrice = async (req, res) => {
-  const { products } = req.body; 
+  const { products } = req.body;
   // products = [{ ItemID: 5388, Qty: 25 }, { ItemID: 1234, Qty: 10 }]
 
   if (!products || !Array.isArray(products) || products.length === 0) {
@@ -970,7 +1026,9 @@ const getProductsFinalPrice = async (req, res) => {
       const itemResult = await pool
         .request()
         .input("ItemID", sql.Int, ItemID)
-        .query("SELECT ItemID, Name, Convert(decimal(18,0),ISNULL(ChargedCost, ItemCost)) AS ChargedCost FROM Items WHERE ItemID = @ItemID");
+        .query(
+          "SELECT ItemID, Name, Convert(decimal(18,0),ISNULL(ChargedCost, ItemCost)) AS ChargedCost FROM Items WHERE ItemID = @ItemID"
+        );
 
       if (itemResult.recordset.length === 0) {
         responseData.push({
@@ -987,8 +1045,7 @@ const getProductsFinalPrice = async (req, res) => {
       const bulkResult = await pool
         .request()
         .input("ItemID", sql.Int, ItemID)
-        .input("Qty", sql.Int, Qty)
-        .query(`
+        .input("Qty", sql.Int, Qty).query(`
           SELECT TOP 1 Quantity, Pricing, DiscountType
           FROM BulkPricing
           WHERE ItemID = @ItemID AND Quantity = @Qty
@@ -1006,7 +1063,9 @@ const getProductsFinalPrice = async (req, res) => {
           finalUnitPrice = appliedTier.Pricing;
         } else if (appliedTier.DiscountType === "%") {
           // Percentage discount
-          finalUnitPrice = item.ChargedCost * Qty - ((item.ChargedCost * Qty) * appliedTier.Pricing / 100);
+          finalUnitPrice =
+            item.ChargedCost * Qty -
+            (item.ChargedCost * Qty * appliedTier.Pricing) / 100;
         }
       }
 
@@ -1059,8 +1118,7 @@ const calculateBill = async (req, res) => {
     if (UserCode) {
       const userResult = await pool
         .request()
-        .input("UserCode", sql.Int, UserCode)
-        .query(`
+        .input("UserCode", sql.Int, UserCode).query(`
           SELECT 
               u.UserCode,
               u.AvailableCoins,
@@ -1072,7 +1130,7 @@ const calculateBill = async (req, res) => {
           WHERE u.UserCode = @UserCode AND u.UserRole = 'Customer'
         `);
 
-        if (userResult.recordset.length > 0) {
+      if (userResult.recordset.length > 0) {
         coinsDiscount = userResult.recordset[0].CoinsDiscount;
       }
     }
@@ -1081,8 +1139,11 @@ const calculateBill = async (req, res) => {
     const taxableAmount = subtotal - coinsDiscount;
 
     // 4. Fetch tax rate from Company table
-    const tax = await pool.request().query(`SELECT SalesTax from Company where isActive = 1`);
-    const taxRate = tax.recordset.length > 0 ? tax.recordset[0].SalesTax : 6.625; // Default to 6.625% if not found
+    const tax = await pool
+      .request()
+      .query(`SELECT SalesTax from Company where isActive = 1`);
+    const taxRate =
+      tax.recordset.length > 0 ? tax.recordset[0].SalesTax : 6.625; // Default to 6.625% if not found
     const taxAmount = (taxableAmount * taxRate) / 100;
 
     // 5. Total
@@ -1095,7 +1156,7 @@ const calculateBill = async (req, res) => {
         CoinsDiscount: coinsDiscount,
         Tax: taxAmount,
         Total: total,
-      }
+      },
     });
   } catch (err) {
     console.error("Error calculating bill:", err);
@@ -1104,6 +1165,175 @@ const calculateBill = async (req, res) => {
       message: "Internal Server Error",
       error: err.message,
     });
+  }
+};
+
+// Get product by id--------------------------------------------------------------------------
+const getProductById = async (req, res) => {
+  try {
+    const { ItemID } = req.body;
+
+    if (!ItemID) {
+      return res.status(400).json({ error: "ItemID is required" });
+    }
+
+    const pool = await poolPromise;
+    const request = pool.request();
+
+    request.input("ItemID", sql.Int, ItemID);
+
+    const result = await request.query(`
+      SELECT 
+          ItemID,
+          CONCAT(Name, CASE WHEN UPC IS NOT NULL THEN CONCAT(' (', UPC, ')') ELSE '' END) AS Name,
+          UPC,
+          Additional_Description,
+          ItemCost,
+          CEILING(ChargedCost * 20) / 20 AS ChargedCost,
+          Sales_Tax,
+          InStock,
+          VendorName,
+          CaseCost,
+          NumberInCase,
+          SalesTax,
+          QuickADD,
+          DroppedItem,
+          EnableStockAlert,
+          StockAlertLimit,
+          AltUPC,
+          ImageUrl,
+          CategoryId,
+          IsActive,
+          CostPerItem
+      FROM Items
+      WHERE ItemID = @ItemID
+    `);
+
+    if (result.recordset.length === 0) {
+      return res.status(404).json({ message: "Item not found" });
+    }
+
+    res.json(result.recordset[0]);
+  } catch (err) {
+    console.error("Error fetching item:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+// Update product by id--------------------------------------------------------------------------
+const updateProductById = async (req, res) => {
+  let transaction; // for safe rollback
+
+  try {
+    const {
+      ItemID,
+      Name,
+      UPC,
+      Additional_Description,
+      ItemCost,
+      ChargedCost,
+      Sales_Tax,
+      InStock,
+      VendorName,
+      CaseCost,
+      NumberInCase,
+      SalesTax,
+      QuickADD,
+      DroppedItem,
+      EnableStockAlert,
+      StockAlertLimit,
+      AltUPC,
+      ImageUrl,
+      CategoryId,
+      IsActive,
+      CostPerItem,
+      BulkPricingTiers
+    } = req.body;
+
+    if (!ItemID) {
+      return res.status(400).json({ error: "ItemID is required" });
+    }
+
+    // ✅ Await the pool and pass the real pool to Transaction
+    const pool = await poolPromise;
+    transaction = new sql.Transaction(pool);
+    await transaction.begin();
+
+    const request = new sql.Request(transaction);
+
+    request.input("ItemID", sql.Int, ItemID);
+    request.input("Name", sql.VarChar(255), Name);
+    request.input("UPC", sql.VarChar(50), UPC);
+    request.input("Additional_Description", sql.VarChar(sql.MAX), Additional_Description);
+    request.input("ItemCost", sql.Decimal(12, 2), ItemCost);
+    request.input("ChargedCost", sql.Decimal(12, 2), ChargedCost);
+    request.input("Sales_Tax", sql.Decimal(12, 2), Sales_Tax);
+    request.input("InStock", sql.Int, InStock);
+    request.input("VendorName", sql.VarChar(255), VendorName);
+    request.input("CaseCost", sql.Decimal(12, 2), CaseCost);
+    request.input("NumberInCase", sql.Int, NumberInCase);
+    request.input("SalesTax", sql.Decimal(12, 2), SalesTax);
+    request.input("QuickADD", sql.Bit, QuickADD);
+    request.input("DroppedItem", sql.Bit, DroppedItem);
+    request.input("EnableStockAlert", sql.Bit, EnableStockAlert);
+    request.input("StockAlertLimit", sql.Int, StockAlertLimit);
+    request.input("AltUPC", sql.VarChar(50), AltUPC);
+    request.input("ImageUrl", sql.VarChar(sql.MAX), ImageUrl);
+    request.input("CategoryId", sql.Int, CategoryId);
+    request.input("IsActive", sql.Bit, IsActive);
+    request.input("CostPerItem", sql.Decimal(12, 2), CostPerItem);
+
+    await request.query(`
+      UPDATE Items
+      SET 
+        Name = @Name,
+        UPC = @UPC,
+        Additional_Description = @Additional_Description,
+        ItemCost = @ItemCost,
+        ChargedCost = @ChargedCost,
+        Sales_Tax = @Sales_Tax,
+        InStock = @InStock,
+        VendorName = @VendorName,
+        CaseCost = @CaseCost,
+        NumberInCase = @NumberInCase,
+        SalesTax = @SalesTax,
+        QuickADD = @QuickADD,
+        DroppedItem = @DroppedItem,
+        EnableStockAlert = @EnableStockAlert,
+        StockAlertLimit = @StockAlertLimit,
+        AltUPC = @AltUPC,
+        ImageUrl = @ImageUrl,
+        CategoryId = @CategoryId,
+        IsActive = @IsActive,
+        CostPerItem = @CostPerItem
+      WHERE ItemID = @ItemID
+    `);
+
+    // BulkPricing: delete + insert (your current approach)
+    if (Array.isArray(BulkPricingTiers)) {
+      await new sql.Request(transaction)
+        .input("ItemID", sql.Int, ItemID)
+        .query(`DELETE FROM BulkPricing WHERE ItemID = @ItemID`);
+
+      for (const tier of BulkPricingTiers) {
+        await new sql.Request(transaction)
+          .input("ItemID", sql.Int, ItemID)
+          .input("Quantity", sql.Int, tier.Quantity)
+          .input("Pricing", sql.Decimal(12, 2), tier.Pricing)
+          .input("DiscountType", sql.VarChar(5), tier.DiscountType)
+          .query(`
+            INSERT INTO BulkPricing (ItemID, Quantity, Pricing, DiscountType)
+            VALUES (@ItemID, @Quantity, @Pricing, @DiscountType)
+          `);
+      }
+    }
+
+    await transaction.commit();
+    res.json({ message: "Item and BulkPricing updated successfully" });
+  } catch (err) {
+    console.error("Error updating item:", err);
+    try { if (transaction) await transaction.rollback(); } catch (_) {}
+    res.status(500).json({ error: "Server error" });
   }
 };
 
@@ -1127,5 +1357,7 @@ module.exports = {
   createInvoiceAndSession,
   updateCheckoutSessionStatus,
   getProductsFinalPrice,
-  calculateBill
+  calculateBill,
+  getProductById,
+  updateProductById
 };

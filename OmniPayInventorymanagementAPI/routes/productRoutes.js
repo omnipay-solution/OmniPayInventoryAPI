@@ -18,7 +18,9 @@ const {
   createInvoiceAndSession,
   updateCheckoutSessionStatus,
   getProductsFinalPrice,
-  calculateBill
+  calculateBill,
+  getProductById,
+  updateProductById
 } = require("../controllers/productController");
  
 // GET /products
@@ -34,6 +36,11 @@ router.post("/hourly-report", getHourlyReport);
 router.post("/userCoins", getUserCoins);
 router.post("/sendMail", upload.single('document'), sendDocumentEmail);
 router.post("/create-invoiceAndSession", createInvoiceAndSession);
+router.put("/update-session", updateCheckoutSessionStatus);
+router.post("/final-price", getProductsFinalPrice); 
+router.post("/calculate-bill", calculateBill);
+router.post("/get-product", getProductById);
+router.put("/update-product", updateProductById);
  
 
 
