@@ -20,7 +20,8 @@ const {
   getProductsFinalPrice,
   calculateBill,
   getProductById,
-  updateProductById
+  updateProductById,
+  getProductNameCategoryById
 } = require("../controllers/productController");
  
 // GET /products
@@ -41,7 +42,7 @@ router.post("/final-price", getProductsFinalPrice);
 router.post("/calculate-bill", calculateBill);
 router.post("/get-product", getProductById);
 router.put("/update-product", updateProductById);
-
+router.post("/get-product-name-category", getProductNameCategoryById);
  
 
 

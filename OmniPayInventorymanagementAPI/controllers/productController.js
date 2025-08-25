@@ -1337,6 +1337,31 @@ const updateProductById = async (req, res) => {
   }
 };
 
+// get productname and itemID By categoryID------------------------------------------------
+const getProductNameCategoryById = async (req, res) => {
+  try {
+    const { CategoryId } = req.body;
+
+    if (!CategoryId) {
+      return res.status(400).json({ error: "CategoryId is required" });
+    } 
+      const pool = await poolPromise;
+      const request = pool.request();
+      request.input("CategoryId", sql.Int, CategoryId); 
+      const result = await request.query(`
+        SELECT ItemID, Name 
+        FROM Items 
+        WHERE CategoryId = @CategoryId AND IsActive = 1
+        ORDER BY Name
+      `);
+      res.json({ products: result.recordset });
+  } catch (err) {
+    console.error("Error fetching products by category:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+
 
 module.exports = {
   getAllProducts,
@@ -1359,5 +1384,6 @@ module.exports = {
   getProductsFinalPrice,
   calculateBill,
   getProductById,
-  updateProductById
+  updateProductById,
+  getProductNameCategoryById
 };
