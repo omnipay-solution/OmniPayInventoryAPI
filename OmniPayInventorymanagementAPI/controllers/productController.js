@@ -1170,6 +1170,7 @@ const calculateBill = async (req, res) => {
 
 // Get product by id--------------------------------------------------------------------------
 const getProductById = async (req, res) => {
+  let pool, transaction;
   try {
     const { ItemID } = req.body;
 
@@ -1177,12 +1178,17 @@ const getProductById = async (req, res) => {
       return res.status(400).json({ error: "ItemID is required" });
     }
 
-    const pool = await poolPromise;
-    const request = pool.request();
+    pool = await poolPromise;
+    transaction = new sql.Transaction(pool);
 
+    // Start transaction
+    await transaction.begin();
+
+    const request = new sql.Request(transaction);
     request.input("ItemID", sql.Int, ItemID);
 
-    const result = await request.query(`
+    // Query 1: Get product details
+    const productResult = await request.query(`
       SELECT 
           ItemID,
           CONCAT(Name, CASE WHEN UPC IS NOT NULL THEN CONCAT(' (', UPC, ')') ELSE '' END) AS Name,
@@ -1209,16 +1215,48 @@ const getProductById = async (req, res) => {
       WHERE ItemID = @ItemID
     `);
 
-    if (result.recordset.length === 0) {
+    if (productResult.recordset.length === 0) {
+      await transaction.rollback();
       return res.status(404).json({ message: "Item not found" });
     }
 
-    res.json(result.recordset[0]);
+    // Query 2: Get bulk pricing tiers for this item
+    const bulkPricingResult = await request.query(`
+      SELECT 
+          Quantity,
+          Pricing,
+          DiscountType
+      FROM BulkPricing
+      WHERE ItemID = @ItemID
+      ORDER BY Quantity
+    `);
+
+    // Commit transaction since both queries succeeded
+    await transaction.commit();
+
+    // Combine results
+    const product = {
+      ...productResult.recordset[0],
+      BulkPricing: bulkPricingResult.recordset || []
+    };
+
+    res.json(product);
   } catch (err) {
     console.error("Error fetching item:", err);
+
+    if (transaction) {
+      try {
+        await transaction.rollback();
+      } catch (rollbackErr) {
+        console.error("Rollback error:", rollbackErr);
+      }
+    }
+
     res.status(500).json({ error: "Server error" });
   }
 };
+
+
 
 // Update product by id--------------------------------------------------------------------------
 const updateProductById = async (req, res) => {
