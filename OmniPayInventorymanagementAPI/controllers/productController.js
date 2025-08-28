@@ -8,7 +8,31 @@ const getAllProducts = async (req, res) => {
   const upcc = req.params.upcc;
   try {
     const pool = await poolPromise;
-    const result = await pool.request().query("SELECT * FROM Items");
+    const result = await pool.request().query(`SELECT 
+    ItemID,
+    Name,
+    UPC,
+    Additional_Description,
+    ItemCost,
+    CEILING(ChargedCost * 20) / 20 AS ChargedCost, 
+    Sales_Tax,
+    InStock,
+    VendorName, 
+    CaseCost,
+    NumberInCase,
+    SalesTax,
+    QuickADD,
+    DroppedItem,
+    EnableStockAlert,
+    StockAlertLimit,
+    AltUPC,
+    ImageUrl,
+    CategoryId,
+    IsActive,
+    CreatedDate,
+    CostPerItem
+FROM Items
+WHERE IsActive = 1`);
     res.status(200).json({ success: true, data: result.recordset });
   } catch (err) {
     console.error("Error fetching products:", err);
@@ -1334,7 +1358,7 @@ const updateProductById = async (req, res) => {
         ItemCost = @ItemCost,
         ChargedCost = @ChargedCost,
         Sales_Tax = @Sales_Tax,
-        InStock = ISNULL(InStock, 0) + @InStock,
+        InStock = @InStock,
         VendorName = @VendorName,
         CaseCost = @CaseCost,
         NumberInCase = @NumberInCase,
@@ -1411,7 +1435,7 @@ const checkBulkPricingExists = async (req, res) => {
   try {
     const { ItemID, Qty } = req.body;
     if (!ItemID || !Qty) {
-     return res.swtatus(400).json({ error: "ItemID and Qty are required" }); 
+      return res.swtatus(400).json({ error: "ItemID and Qty are required" });
     }
     const pool = await poolPromise;
     const result = await pool
