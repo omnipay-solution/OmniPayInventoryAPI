@@ -21,7 +21,8 @@ const {
   calculateBill,
   getProductById,
   updateProductById,
-  getProductNameCategoryById
+  getProductNameCategoryById,
+  checkBulkPricingExists
 } = require("../controllers/productController");
  
 // GET /products
@@ -43,6 +44,7 @@ router.post("/calculate-bill", calculateBill);
 router.post("/get-product", getProductById);
 router.put("/update-product", updateProductById);
 router.post("/get-product-name-category", getProductNameCategoryById);
+router.post("/check-bulk-pricing", checkBulkPricingExists);
  
 
 
