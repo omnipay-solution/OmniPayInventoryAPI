@@ -1237,7 +1237,7 @@ const getProductById = async (req, res) => {
     // Combine results
     const product = {
       ...productResult.recordset[0],
-      BulkPricing: bulkPricingResult.recordset || []
+      BulkPricing: bulkPricingResult.recordset || [],
     };
 
     res.json(product);
@@ -1255,8 +1255,6 @@ const getProductById = async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 };
-
-
 
 // Update product by id--------------------------------------------------------------------------
 const updateProductById = async (req, res) => {
@@ -1285,7 +1283,8 @@ const updateProductById = async (req, res) => {
       CategoryId,
       IsActive,
       CostPerItem,
-      BulkPricingTiers
+      UpdatedBy,
+      BulkPricingTiers,
     } = req.body;
 
     if (!ItemID) {
@@ -1302,7 +1301,11 @@ const updateProductById = async (req, res) => {
     request.input("ItemID", sql.Int, ItemID);
     request.input("Name", sql.VarChar(255), Name);
     request.input("UPC", sql.VarChar(50), UPC);
-    request.input("Additional_Description", sql.VarChar(sql.MAX), Additional_Description);
+    request.input(
+      "Additional_Description",
+      sql.VarChar(sql.MAX),
+      Additional_Description
+    );
     request.input("ItemCost", sql.Decimal(12, 2), ItemCost);
     request.input("ChargedCost", sql.Decimal(12, 2), ChargedCost);
     request.input("Sales_Tax", sql.Decimal(12, 2), Sales_Tax);
@@ -1320,6 +1323,7 @@ const updateProductById = async (req, res) => {
     request.input("CategoryId", sql.Int, CategoryId);
     request.input("IsActive", sql.Bit, IsActive);
     request.input("CostPerItem", sql.Decimal(12, 2), CostPerItem);
+    request.input("UpdatedBy", sql.NVarChar(100), UpdatedBy);
 
     await request.query(`
       UPDATE Items
@@ -1330,7 +1334,7 @@ const updateProductById = async (req, res) => {
         ItemCost = @ItemCost,
         ChargedCost = @ChargedCost,
         Sales_Tax = @Sales_Tax,
-        InStock = @InStock,
+        InStock = ISNULL(InStock, 0) + @InStock,
         VendorName = @VendorName,
         CaseCost = @CaseCost,
         NumberInCase = @NumberInCase,
@@ -1343,7 +1347,9 @@ const updateProductById = async (req, res) => {
         ImageUrl = @ImageUrl,
         CategoryId = @CategoryId,
         IsActive = @IsActive,
-        CostPerItem = @CostPerItem
+        CostPerItem = @CostPerItem,
+        UpdatedAt = GETDATE(),
+        UpdatedBy = @UpdatedBy
       WHERE ItemID = @ItemID
     `);
 
@@ -1358,8 +1364,7 @@ const updateProductById = async (req, res) => {
           .input("ItemID", sql.Int, ItemID)
           .input("Quantity", sql.Int, tier.Quantity)
           .input("Pricing", sql.Decimal(12, 2), tier.Pricing)
-          .input("DiscountType", sql.VarChar(5), tier.DiscountType)
-          .query(`
+          .input("DiscountType", sql.VarChar(5), tier.DiscountType).query(`
             INSERT INTO BulkPricing (ItemID, Quantity, Pricing, DiscountType)
             VALUES (@ItemID, @Quantity, @Pricing, @DiscountType)
           `);
@@ -1370,7 +1375,9 @@ const updateProductById = async (req, res) => {
     res.json({ message: "Item and BulkPricing updated successfully" });
   } catch (err) {
     console.error("Error updating item:", err);
-    try { if (transaction) await transaction.rollback(); } catch (_) {}
+    try {
+      if (transaction) await transaction.rollback();
+    } catch (_) {}
     res.status(500).json({ error: "Server error" });
   }
 };
@@ -1382,24 +1389,56 @@ const getProductNameCategoryById = async (req, res) => {
 
     if (!CategoryId) {
       return res.status(400).json({ error: "CategoryId is required" });
-    } 
-      const pool = await poolPromise;
-      const request = pool.request();
-      request.input("CategoryId", sql.Int, CategoryId); 
-      const result = await request.query(`
+    }
+    const pool = await poolPromise;
+    const request = pool.request();
+    request.input("CategoryId", sql.Int, CategoryId);
+    const result = await request.query(`
         SELECT ItemID, Name 
         FROM Items 
         WHERE CategoryId = @CategoryId AND IsActive = 1
         ORDER BY Name
       `);
-      res.json({ products: result.recordset });
+    res.json({ products: result.recordset });
   } catch (err) {
     console.error("Error fetching products by category:", err);
     res.status(500).json({ error: "Server error" });
   }
 };
 
+// check if bulk pricing exists for an item ---------------------------------------------------
+const checkBulkPricingExists = async (req, res) => {
+  try {
+    const { ItemID, Qty } = req.body;
+    if (!ItemID || !Qty) {
+     return res.swtatus(400).json({ error: "ItemID and Qty are required" }); 
+    }
+    const pool = await poolPromise;
+    const result = await pool
+      .request()
+      .input("ItemID", sql.Int, ItemID)
+      .input("Qty", sql.Int, Qty)
+      .query(
+        "SELECT COUNT(BulkPricingID) AS Count FROM BulkPricing WHERE ItemID = @ItemID AND Quantity = @Qty"
+      );
 
+    const count = result.recordset[0].Count;
+    if (count > 0) {
+      return res.json({
+        success: true,
+        BulkPricing: true,
+      });
+    } else {
+      return res.json({
+        success: true,
+        BulkPricing: false,
+      });
+    }
+  } catch (err) {
+    console.error("Error checking bulk pricing:", err);
+    return false;
+  }
+};
 
 module.exports = {
   getAllProducts,
@@ -1423,5 +1462,6 @@ module.exports = {
   calculateBill,
   getProductById,
   updateProductById,
-  getProductNameCategoryById
+  getProductNameCategoryById,
+  checkBulkPricingExists,
 };
