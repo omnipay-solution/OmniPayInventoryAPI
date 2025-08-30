@@ -2,6 +2,7 @@ const { sql, poolPromise } = require("../config/db");
 const multer = require("multer");
 const path = require("path");
 const nodemailer = require("nodemailer");
+const { fix } = require("mssql");
 
 // Get all products--------------------------------------------------------------------------
 const getAllProducts = async (req, res) => {
@@ -143,6 +144,8 @@ const createProduct = async (req, res) => {
       CategoryId,
       IsActive,
       CostPerItem,
+      Pack,
+      IsManual,
       BulkPricingTiers,
     } = req.body;
 
@@ -175,6 +178,8 @@ const createProduct = async (req, res) => {
     request.input("IsActive", sql.Bit, IsActive);
     request.input("CreatedDate", sql.DateTime, new Date());
     request.input("CostPerItem", sql.Decimal(18, 2), CostPerItem);
+    request.input("Pack", sql.Int, Pack);
+    request.input("IsManual", sql.Bit, IsManual); 
 
     // SQL query to insert and return the inserted ItemID
     const result = await request.query(`
@@ -182,14 +187,14 @@ const createProduct = async (req, res) => {
         Name, UPC, Additional_Description, ItemCost, ChargedCost,
         Sales_Tax, InStock, VendorName, CaseCost, NumberInCase,
         SalesTax, QuickADD, DroppedItem, EnableStockAlert, StockAlertLimit,
-        AltUPC, ImageUrl, CategoryId, IsActive, CreatedDate, CostPerItem
+        AltUPC, ImageUrl, CategoryId, IsActive, CreatedDate, CostPerItem, Pack,IsManual
       )
       OUTPUT INSERTED.ItemID
       VALUES (
         @Name, @UPC, @Additional_Description, @ItemCost, @ChargedCost,
         @Sales_Tax, @InStock, @VendorName, @CaseCost, @NumberInCase,
         @SalesTax, @QuickADD, @DroppedItem, @EnableStockAlert, @StockAlertLimit,
-        @AltUPC, @ImageUrl, @CategoryId, @IsActive, @CreatedDate, @CostPerItem
+        @AltUPC, @ImageUrl, @CategoryId, @IsActive, @CreatedDate, @CostPerItem, @Pack, @IsManual
       )
     `);
 
@@ -314,14 +319,13 @@ const getCategoryById = async (req, res) => {
     const result = await pool.request().input("CategoryID", sql.Int, categoryId)
       .query(`SELECT 
     ItemID,
-    CONCAT(
-        Name, 
-        CASE WHEN UPC IS NOT NULL THEN CONCAT(' (', UPC, ')') ELSE '' END
-    ) AS Name,
+    case when IsManual = 0 then Name else Concat( Name,' - Pack - ' , pack ) end AS Name,
     UPC,
     Additional_Description,
     ItemCost,
-    CEILING(ChargedCost * 20) / 20 AS ChargedCost, 
+      CAST(
+    CEILING(ISNULL(ChargedCost, ItemCost) * 20) / 20.0 
+    AS decimal(18,2)) AS ChargedCost,
     Sales_Tax,
     InStock,
     VendorName, 
@@ -337,7 +341,9 @@ const getCategoryById = async (req, res) => {
     CategoryId,
     IsActive,
     CreatedDate,
-    CostPerItem
+    CostPerItem,
+    Pack,
+    IsManual
 FROM Items
 WHERE IsActive = 1
   AND CategoryId = @CategoryId
@@ -905,7 +911,7 @@ const createInvoiceAndSession = async (req, res) => {
     const pool = await poolPromise;
     const request = pool.request();
 
-    // 1️⃣ Generate sequential number for InvoiceCode
+    // Generate sequential number for InvoiceCode
     const latestResult = await pool
       .request()
       .input("UserName", sql.VarChar, UserName).query(`
@@ -1029,81 +1035,141 @@ const updateCheckoutSessionStatus = async (req, res) => {
 
 // Calculate final price with bulk pricing---------------------------------------------------
 const getProductsFinalPrice = async (req, res) => {
-  const { products } = req.body;
-  // products = [{ ItemID: 5388, Qty: 25 }, { ItemID: 1234, Qty: 10 }]
+  const { products, customProducts } = req.body;
 
-  if (!products || !Array.isArray(products) || products.length === 0) {
+    if (
+    (!products || !Array.isArray(products) || products.length === 0) &&
+    (!customProducts || !Array.isArray(customProducts) || customProducts.length === 0)
+  ) {
     return res.status(400).json({
       success: false,
-      message: "Products array is required in request body",
+      message: "Products or customProducts array is required in request body",
     });
   }
-
   try {
     const pool = await poolPromise;
     const responseData = [];
 
-    for (let p of products) {
-      const { ItemID, Qty } = p;
+    // 1. Handle Normal Products
+    if (products && Array.isArray(products)) {
+      for (let p of products) {
+        const { ItemID, Qty, Discount = 0 } = p;
 
-      // 1. Fetch item
-      const itemResult = await pool
-        .request()
-        .input("ItemID", sql.Int, ItemID)
-        .query(
-          "SELECT ItemID, Name, Convert(decimal(18,0),ISNULL(ChargedCost, ItemCost)) AS ChargedCost FROM Items WHERE ItemID = @ItemID"
-        );
+        const itemResult = await pool
+          .request()
+          .input("ItemID", sql.Int, ItemID)
+          .query(
+            `SELECT ItemID, Name, Convert(decimal(18,0),ISNULL(ChargedCost, ItemCost)) AS ChargedCost 
+            FROM Items WHERE ItemID = @ItemID`
+          );
 
-      if (itemResult.recordset.length === 0) {
-        responseData.push({
-          ItemID,
-          Qty,
-          error: "Item not found",
-        });
-        continue;
-      }
-
-      const item = itemResult.recordset[0];
-
-      // 2. Check BulkPricing table
-      const bulkResult = await pool
-        .request()
-        .input("ItemID", sql.Int, ItemID)
-        .input("Qty", sql.Int, Qty).query(`
-          SELECT TOP 1 Quantity, Pricing, DiscountType
-          FROM BulkPricing
-          WHERE ItemID = @ItemID AND Quantity = @Qty
-          ORDER BY Quantity DESC
-        `);
-
-      let finalUnitPrice = item.ChargedCost;
-      let appliedTier = null;
-
-      if (bulkResult.recordset.length > 0) {
-        appliedTier = bulkResult.recordset[0];
-
-        if (appliedTier.DiscountType === "$") {
-          // Absolute bulk price
-          finalUnitPrice = appliedTier.Pricing;
-        } else if (appliedTier.DiscountType === "%") {
-          // Percentage discount
-          finalUnitPrice =
-            item.ChargedCost * Qty -
-            (item.ChargedCost * Qty * appliedTier.Pricing) / 100;
+        if (itemResult.recordset.length === 0) {
+          responseData.push({
+            ItemID,
+            Qty,
+            error: "Item not found",
+          });
+          continue;
         }
-      }
 
-      // 3. Push product summary
-      responseData.push({
-        ItemID: item.ItemID,
-        ItemName: item.Name,
-        Qty,
-        UnitPrice: item.ChargedCost,
-        FinalPrice: appliedTier ? finalUnitPrice : finalUnitPrice * Qty,
-      });
+        const item = itemResult.recordset[0];
+
+        // Bulk Pricing
+        const bulkResult = await pool
+          .request()
+          .input("ItemID", sql.Int, ItemID)
+          .input("Qty", sql.Int, Qty).query(`
+            SELECT TOP 1 Quantity, Pricing, DiscountType
+            FROM BulkPricing
+            WHERE ItemID = @ItemID AND Quantity = @Qty
+            ORDER BY Quantity DESC
+          `);
+ 
+          let finalUnitPrice = item.ChargedCost;
+          let bulkApplied = false;
+          // console.log("unit price" ,item.ChargedCost)
+
+        if (bulkResult.recordset.length > 0) {
+          const appliedTier = bulkResult.recordset[0];
+          bulkApplied = true;
+
+          if (appliedTier.DiscountType === "$") {
+            finalUnitPrice = appliedTier.Pricing;
+          } else if (appliedTier.DiscountType === "%") {
+            taxCount = (item.ChargedCost * appliedTier.Pricing) / 100; // per unit discount
+            finalUnitPrice = item.ChargedCost - taxCount;
+            totalBUlkDiscount = taxCount * Qty;
+          }
+        }
+
+        let lineTotal = finalUnitPrice * Qty;
+        // console.log("line total" , lineTotal);
+ 
+        // console.log("Discount" , Discount);
+        // Apply Discount (only for DB products)
+        if (!bulkApplied && Discount && Discount.Value > 0) {
+          if (Discount.Type === "%") {
+            lineTotal = lineTotal - (lineTotal * Discount.Value) / 100;
+          } else if (Discount.Type === "$") {
+            lineTotal = lineTotal - Discount.Value;
+          }
+        }
+        // console.log("final total" , lineTotal);
+
+        responseData.push({
+          ItemID: item.ItemID,
+          ItemName: item.Name,
+          Qty,
+          UnitPrice: item.ChargedCost,
+          Discount:  bulkApplied ?  { Type: "Bulk", Value: parseFloat(totalBUlkDiscount.toFixed(2)) } : Discount,
+          BulkApplied : bulkApplied,
+          FinalPrice: parseFloat(lineTotal.toFixed(2)),
+        });
+      }
     }
 
-    // 4. Return result
+    // 2. Handle Custom Products
+    if (customProducts && Array.isArray(customProducts)) {
+      // Fetch company tax % once
+      const companyTaxResult = await pool
+        .request()
+        .query("SELECT TOP 1 SalesTax FROM Company");
+        console.log("companyTaxResult", companyTaxResult);
+
+      const companyTaxRate = companyTaxResult.recordset.length
+        ? parseFloat(companyTaxResult.recordset[0].SalesTax) || 0
+        : 0;
+        console.log("companyTaxRate", companyTaxRate);
+
+      for (let c of customProducts) {
+        const { Name, Qty, UnitPrice, Taxable } = c;
+
+        let lineTotal = Qty * UnitPrice;
+        let taxAmount = 0;
+
+        if (Taxable) {
+          taxAmount = (lineTotal * companyTaxRate) / 100;
+          console.log("taxAmount", taxAmount);
+          // fixedTaxAmount = Math.round(taxAmount); 
+          // console.log("fixedTaxAmount", fixedTaxAmount);
+          lineTotal += taxAmount;
+        }
+        console.log("custom product line total", lineTotal);
+
+        responseData.push({
+          ItemID: 0,
+          ItemName: Name,
+          Qty,
+          UnitPrice,
+          Taxable,
+          TaxRate: Taxable ? companyTaxRate : 0,
+          TaxAmount: parseFloat(taxAmount.toFixed(2)),
+          FinalPrice: parseFloat(lineTotal.toFixed(2)),
+        });
+      }
+    }
+
+    // Final Response
     res.status(200).json({
       success: true,
       data: responseData,
@@ -1215,11 +1281,11 @@ const getProductById = async (req, res) => {
     const productResult = await request.query(`
       SELECT 
           ItemID,
-          CONCAT(Name, CASE WHEN UPC IS NOT NULL THEN CONCAT(' (', UPC, ')') ELSE '' END) AS Name,
+          case when a.IsManual = 0 then a.Name else Concat(a.Name,' - Pack - ' ,a.pack ) end as Name,
           UPC,
           Additional_Description,
           ItemCost,
-          CEILING(ChargedCost * 20) / 20 AS ChargedCost,
+          CAST(CEILING(ISNULL(ChargedCost, ItemCost) * 20) / 20.0 AS decimal(18,2)) AS ChargedCost,
           Sales_Tax,
           InStock,
           VendorName,
@@ -1234,7 +1300,9 @@ const getProductById = async (req, res) => {
           ImageUrl,
           CategoryId,
           IsActive,
-          CostPerItem
+          CostPerItem,
+          Pack,
+          IsManual,
       FROM Items
       WHERE ItemID = @ItemID
     `);
@@ -1308,6 +1376,8 @@ const updateProductById = async (req, res) => {
       IsActive,
       CostPerItem,
       UpdatedBy,
+      Pack,
+      IsManual,
       BulkPricingTiers,
     } = req.body;
 
@@ -1348,6 +1418,8 @@ const updateProductById = async (req, res) => {
     request.input("IsActive", sql.Bit, IsActive);
     request.input("CostPerItem", sql.Decimal(12, 2), CostPerItem);
     request.input("UpdatedBy", sql.NVarChar(100), UpdatedBy);
+    request.input("Pack", sql.Int, Pack);
+    request.input("IsManual", sql.Bit, IsManual);
 
     await request.query(`
       UPDATE Items
@@ -1373,7 +1445,9 @@ const updateProductById = async (req, res) => {
         IsActive = @IsActive,
         CostPerItem = @CostPerItem,
         UpdatedAt = GETDATE(),
-        UpdatedBy = @UpdatedBy
+        UpdatedBy = @UpdatedBy,
+        Pack = @Pack,
+        IsManual = @IsManual
       WHERE ItemID = @ItemID
     `);
 
