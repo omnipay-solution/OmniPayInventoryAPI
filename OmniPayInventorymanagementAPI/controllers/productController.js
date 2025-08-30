@@ -1281,7 +1281,7 @@ const getProductById = async (req, res) => {
     const productResult = await request.query(`
       SELECT 
           ItemID,
-          case when a.IsManual = 0 then a.Name else Concat(a.Name,' - Pack - ' ,a.pack ) end as Name,
+          case when IsManual = 0 then Name else Concat(Name,' - Pack - ' , pack ) end as Name,
           UPC,
           Additional_Description,
           ItemCost,
@@ -1302,7 +1302,7 @@ const getProductById = async (req, res) => {
           IsActive,
           CostPerItem,
           Pack,
-          IsManual,
+          IsManual
       FROM Items
       WHERE ItemID = @ItemID
     `);
